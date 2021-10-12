@@ -15,15 +15,25 @@ def depth_lowpass(arr, ws, min_depth=0):
     return filt
 
 
-def surface_to_depth(arr):
+def np_surface_to_depth(arr, min_depth=0):
     filt = np.asarray(arr).copy()
-    filt[1:, :] = arr[:1, :]
+    filt[min_depth + 1:, :] = arr[None, min_depth, :]
     return filt
 
 
-def tf_surface_to_depth(arr):
-    filt = tf.tile(arr[None, 0, :], [arr.shape[0], 1])
+def tf_surface_to_depth(arr, min_depth=0):
+    filt = tf.Variable(arr)
+    new_block = tf.tile(arr[None, min_depth, :],
+                        [arr.shape[0] - 1 - min_depth, 1])
+    filt[min_depth + 1:, :].assign(new_block)
     return filt
+
+
+def surface_to_depth(arr, *args, **kwargs):
+    if isinstance(arr, tf.Tensor):
+        return tf_surface_to_depth(arr, *args, **kwargs)
+    else:
+        return np_surface_to_depth(arr, *args, **kwargs)
 
 
 def clip(arr, keep=1.0):
@@ -33,7 +43,7 @@ def clip(arr, keep=1.0):
     return arr
 
 
-def seisgain(d, dt=0.015, a=2., b=0.):
+def seis_gain(d, dt=0.015, a=2., b=0.):
     '''Simple amplitude gain function.'''
     d = np.asarray(d)
     nt, nx = d.shape
@@ -51,4 +61,5 @@ if __name__ == '__main__':
     v = tf.Variable(v)
     print(v)
     print(surface_to_depth(v))
-    print(tf_surface_to_depth(v))
+    print(tf_surface_to_depth(v, 1))
+    print(v)
