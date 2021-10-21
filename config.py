@@ -55,9 +55,12 @@ MODELS['marmousi'] = {
 # WARNING: do not mess here unless you know what you are doing
 # - Result directories' generator
 DIR_CONFIG['result_dirs'] = lambda *d: {  # i.e. model_name, train_id
-    'checkpoint': join(DIR_CONFIG['result'], *d, 'checkpoint'),
-    'history_data': join(DIR_CONFIG['result'], *d, 'history_data'),
-    'history_plot': join(DIR_CONFIG['result'], *d, 'plots', 'history'),
+    'checkpoint_data': join(DIR_CONFIG['result'], *d, 'data',  'checkpoint'),
+    'checkpoint_plot': join(DIR_CONFIG['result'], *d, 'plot', 'checkpoint'),
+    'metrics_data': join(DIR_CONFIG['result'], *d, 'data', 'metrics'),
+    'metrics_plot': join(DIR_CONFIG['result'], *d, 'plot', 'history'),
+    'X': join(DIR_CONFIG['result'], *d, 'data', 'x'),
+    'Y': join(DIR_CONFIG['result'], *d, 'data', 'y'),
 }
 
 if __name__ == '__main__':

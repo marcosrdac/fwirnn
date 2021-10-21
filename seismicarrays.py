@@ -313,7 +313,7 @@ def test_make_array(parsed_geometry=None,
 
 if __name__ == '__main__':
     from os.path import isfile
-    from discarrays import discarray, todiscarray
+    from utils.discarrays import discarray, todiscarray
     import matplotlib.pyplot as plt
 
     marmousi_path = '/home/marcosrdac/cld/Dropbox/home/pro/0/awm/awm2d/models/marmousi.bin'

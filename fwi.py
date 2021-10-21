@@ -36,8 +36,9 @@ def make_loss_fun(lamb):
     else:
 
         def loss_fun(ŷ, y):
+            # TODO: ask about regularization --> reg. grad model
             e = ŷ - y
-            return mse(e) + lamb * mae(e)
+            return mse(e) + lamb * mae(e)  # e or ŷ
 
     return loss_fun
 
@@ -70,17 +71,16 @@ if __name__ == '__main__':
     from params import DIR_CONFIG
     start = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-
     result_dirs = DIR_CONFIG['result_dirs'](start)
-    img_dir = join(dirname(IMG_DIR), f'{start}_{basename(IMG_DIR)}')
-    seis_dir = join(dirname(SEIS_DIR), f'{start}_{basename(SEIS_DIR)}')
-    v_dir = join(dirname(V_DIR), f'{start}_{basename(V_DIR)}')
+    # img_dir = join(dirname(IMG_DIR), f'{start}_{basename(IMG_DIR)}')
+    # seis_dir = join(dirname(SEIS_DIR), f'{start}_{basename(SEIS_DIR)}')
+    # v_dir = join(dirname(V_DIR), f'{start}_{basename(V_DIR)}')
 
-    for folder in (dirname(SHOTS_FILE), img_dir, seis_dir, v_dir):
-        makedirs(folder, exist_ok=True)
+    # for folder in (dirname(SHOTS_FILE), img_dir, seis_dir, v_dir):
+    # makedirs(folder, exist_ok=True)
 
-    model = 'marmousi'
-    if model == '3_layers':
+    model_name = 'marmousi'
+    if model_name == '3_layers':
         # velocity field
         shape = nz, nx = 70, 120
         v = np.empty(shape, dtype=np.float32)
@@ -105,7 +105,7 @@ if __name__ == '__main__':
             dx=1,
             all_recs=True,
         )
-    if model == 'marmousi':
+    if model_name == 'marmousi':
         v = discarray(
             '/home/marcosrdac/cld/Dropbox/home/pro/0/awm/awm2d/models/marmousi.bin',
             mode='r',
@@ -129,7 +129,7 @@ if __name__ == '__main__':
             srcsgn=signal,
             geometry=f'1300-{3*dx}-0',
             rr=dx,
-            ss=(nx//20)*dx,
+            ss=(nx // 20) * dx,
             dx=dx,
             nx=nx,
             ns=None,
@@ -150,7 +150,7 @@ if __name__ == '__main__':
 
     seis_wo_dw = make_seis_wo_dw(seis, sporder)
 
-    # dataset
+    # START MAKING DATASET
     X = (*zip(srcsgns, srccrds, reccrds), )
 
     if not isfile(SHOTS_FILE):
@@ -163,8 +163,7 @@ if __name__ == '__main__':
             Y_text = f.read()
         Y = loads(Y_text)
 
-    # shots
-    i_xiyi = [*enumerate(zip(X, Y), start=1)]
+    # END MAKING DATASET
 
     loss_fun = make_loss_fun(lamb=.3)
 
@@ -174,7 +173,6 @@ if __name__ == '__main__':
     v_0 = depth_lowpass(v, ws=30, min_depth=maintain_before_depth)
 
     # training
-    model_name = '3layed'
     show = False
     accumulate_gradients = False
     shuffle_shots = True
@@ -202,6 +200,9 @@ if __name__ == '__main__':
 
     # Setting up history
     histories = {}
+
+    # Shots
+    i_xiyi = [*enumerate(zip(X, Y), start=1)]
 
     for optimizer_name, param_space in optimizer_param_spaces.items():
 
@@ -237,6 +238,7 @@ if __name__ == '__main__':
                 if shuffle_shots:
                     shuffle(i_xiyi)
 
+                # FROM HERE BELOW -> train_epoch function, auto random batching
                 for t, (i, (xi, yi)) in enumerate(i_xiyi, start=1):
                     print(f'  e={e} t={t} i={i}')
 
