@@ -234,10 +234,13 @@ def make_array(
         grid_reccrds = [[(int(round(sz / dz)), int(round(sx / dx)))
                          for sz, sx in crds] for crds in true_reccrds]
 
+    def make_srcsgns(srcsgn):
+        return [[srcsgn] for s in range(nshots)]
+
     if srcsgn is not None:
-        srcsgns = np.asarray([[srcsgn] for s in range(nshots)])
+        srcsgns = make_srcsgns(srcsgn)
     else:
-        srcsgns = [[[]] for s in range(nshots)]
+        srcsgns = make_srcsgns
 
     return srcsgns, grid_srccrds, grid_reccrds, true_srccrds, true_reccrds
 

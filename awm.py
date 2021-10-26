@@ -5,7 +5,7 @@ from functools import partial
 from scipy.special import jv
 from os import makedirs
 from os.path import join, dirname, isfile, isdir, dirname, basename
-from discarrays import discarray, todiscarray
+from utils.discarrays import discarray, todiscarray
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 # mpl.use("TkAgg")
@@ -154,6 +154,7 @@ def make_addsources(srcsgns, srccrds, taper=0):
         padded_srccrds = padcoords(srccrds, taper, until=2)
 
         def addsource(P, t, sgn, crd):
+            # print(t, crd[-1], t-crd[-1])
             return tf.tensor_scatter_nd_add(
                 P,
                 crd[None, :2],
@@ -337,13 +338,13 @@ def plot_seismograms(seis_i,
 
 
 if __name__ == '__main__':
-    from sources import rickerwave
+    from utils.wavelets import rickerwave
     from datetime import datetime
     from seismicarrays import make_default_arrays, make_array, parse_geometry
-    from filters import depth_lowpass, surface_to_depth
+    from utils.filters import depth_lowpass, surface_to_depth
     start = datetime.now().strftime("%Y%m%d%H%M%S")
 
-    from params import SHOTS_FILE, IMG_DIR, SEIS_DIR, V_DIR
+    # from config import SHOTS_FILE, IMG_DIR, SEIS_DIR, V_DIR
 
     # TODO create DIRS variable in params
     # img_dir = join(dirname(IMG_DIR), f'{start}_{basename(IMG_DIR)}')

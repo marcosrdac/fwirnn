@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from filters import depth_lowpass, zero_shallow, clip, seis_gain, tf_surface_to_depth
+from .filters import seis_gain
 
 
 def plot_velocities(v,

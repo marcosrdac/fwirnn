@@ -8,10 +8,11 @@ import numpy as np
 DIR_CONFIG = {'data': '/home/marcosrdac/tmp/awm_data'}
 # - User managed directories
 # -- Input data
-DIR_CONFIG['model'] = join(DIR_CONFIG['data'], 'input')
+DIR_CONFIG['source'] = join(DIR_CONFIG['data'], 'source')
 # - Automatically managed directories
 # -- Training outputs
 DIR_CONFIG['result'] = join(DIR_CONFIG['data'], 'result')
+DIR_CONFIG['Y_old'] = join(DIR_CONFIG['data'], 'Y.pkl')
 
 # Train config
 TRAIN_CONFIG = {}
@@ -30,37 +31,17 @@ TRAIN_CONFIG['early_stopping'] = {
     'delta': 0,
 }
 
-# Model settings
-MODELS = {}
-# - U-net architectures
-MODELS['marmousi'] = {
-    'dx':
-    3,
-    'a':
-    dict(
-        rescale=(-2, -2, 0, 2, 2),
-        nfeat=(
-            (8, ),
-            (16, ),
-            (32, ),
-            (16, ),
-            (8, ),
-        ),
-        norm=True,
-        # drop=(),
-        droplast=.3),
-}
-
 # Other automatic configs
 # WARNING: do not mess here unless you know what you are doing
 # - Result directories' generator
 DIR_CONFIG['result_dirs'] = lambda *d: {  # i.e. model_name, train_id
-    'checkpoint_data': join(DIR_CONFIG['result'], *d, 'data',  'checkpoint'),
-    'checkpoint_plot': join(DIR_CONFIG['result'], *d, 'plot', 'checkpoint'),
-    'metrics_data': join(DIR_CONFIG['result'], *d, 'data', 'metrics'),
-    'metrics_plot': join(DIR_CONFIG['result'], *d, 'plot', 'history'),
-    'X': join(DIR_CONFIG['result'], *d, 'data', 'x'),
-    'Y': join(DIR_CONFIG['result'], *d, 'data', 'y'),
+    'v_data': join(DIR_CONFIG['result'], *d, 'data_v'),
+    'v_plot': join(DIR_CONFIG['result'], *d, 'plot_v'),
+    'seis_data': join(DIR_CONFIG['result'], *d, 'data_seis'),
+    'seis_plot': join(DIR_CONFIG['result'], *d, 'plot_seis'),
+    'metric_data': join(DIR_CONFIG['result'], *d, 'data_metric'),
+    'metric_plot': join(DIR_CONFIG['result'], *d, 'plot_metric'),
+    'dataset': join(DIR_CONFIG['result'], *d, 'dataset'),
 }
 
 if __name__ == '__main__':
@@ -80,6 +61,11 @@ if __name__ == '__main__':
               f'{dir_nick} -> {dir_path!r}',
               f'(with {num_files} files)',
               sep=' ')
+
+    from models import Marmousi
+    model = Marmousi()
+    v = model.load()
+    
 
 #    nprint('Patch settings:')
 #    pprint(PATCH_CONFIG)
