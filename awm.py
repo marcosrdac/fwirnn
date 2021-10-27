@@ -34,8 +34,9 @@ def central_difference_coefs(degree: int, order: int):
 def make_fd_laplacian(dz: int, dx: int, order: int = 2) -> Callable:
     stencil = central_difference_coefs(2, order)
     stencil = tf.constant(stencil, dtype=tf.float32)
-    zkern = stencil[::-1, None, None, None] / dz**2
-    xkern = stencil[None, ::-1, None, None] / dx**2
+    # will not reverse stencil as it is symmetric
+    zkern = stencil[:, None, None, None] / dz**2
+    xkern = stencil[None, :, None, None] / dx**2
 
     def laplacian(P: tf.Tensor) -> tf.Tensor:
         P = P[None, :, :, None]

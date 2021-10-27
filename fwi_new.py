@@ -1,8 +1,8 @@
-from random import shuffle
 from os import makedirs
 from os.path import join, dirname, isfile, isdir, dirname, basename
 import numpy as np
 import tensorflow as tf
+from tensorflow import math as tfm, image as tfi
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from typing import Any, Sequence, Dict, Callable
@@ -13,15 +13,21 @@ from utils.plotutils import plot_seismograms, plot_velocities
 from functools import partial
 from utils.wavelets import rickerwave
 from seismicarrays import make_default_arrays, parse_geometry, make_array
-from pickle import dumps, loads
 import tensorflow.keras.optimizers as optimizers
 from utils.discarrays import discarray, todiscarray
 from utils.structures import AccumulatingDict
+from stop_conditions import StopCondition
+import pickle
+
+
+def dump_to_file(path, data):
+    with open(path, 'wb') as f:
+        pickle.dump(data, f)
 
 
 def mse(ŷ, y=None):
     e = ŷ - y if y is not None else ŷ
-    return 1 / 2 * tf.reduce_mean(e**2)
+    return tf.reduce_mean(e**2)
 
 
 def mae(ŷ, y=None):  # mean absolute deviation
@@ -29,17 +35,53 @@ def mae(ŷ, y=None):  # mean absolute deviation
     return tf.reduce_mean(tf.abs(e))
 
 
-def make_loss_fun(lamb=1.):
-    def loss_fun(ŷ, y, v=None):
-        if v is None or lamb == 0:
-            return mse(ŷ - y)
-        else:
-            return mse(ŷ - y) + lamb * mae(v)
+def rmse(ŷ, y=None):
+    return tf.math.sqrt(mse(ŷ, y))
+
+
+def mse_loss(ŷ, y=None):
+    return 1 / 2 * mse(ŷ, y)
+
+
+def mae_loss(ŷ, y=None):  # mean absolute deviation
+    return mae(ŷ, y)
+
+
+def make_loss_fun(lamb=0, a=0., dz=1, dx=1):
+    if lamb == 0:
+
+        def loss_fun(ŷ, y, *args, **kwargs):
+            return mse_loss(ŷ, y)
+    else:
+        kern_fwd = tf.constant(np.asarray([0, -1, 1], dtype=np.float32))
+        kern_bwd = tf.constant(np.asarray([-1, 1, 0], dtype=np.float32))
+
+        kernz_fwd = kern_fwd[:, None, None, None] / dz
+        kernz_bwd = kern_bwd[:, None, None, None] / dz
+        kernx_fwd = kern_fwd[None, :, None, None] / dx
+        kernx_bwd = kern_bwd[None, :, None, None] / dx
+
+        def loss_fun(ŷ, y, v):
+            v = v[None, :, :, None]
+
+            vz_fwd = tf.nn.convolution(v, kernz_fwd, padding="SAME")[0, ..., 0]
+            vx_fwd = tf.nn.convolution(v, kernx_fwd, padding="SAME")[0, ..., 0]
+            grad_v = tfm.sqrt(tfm.square(vz_fwd) + tfm.square(vx_fwd))
+
+            vz_bwd = tf.nn.convolution(v, kernz_bwd, padding="SAME")[0, ..., 0]
+            vx_bwd = tf.nn.convolution(v, kernx_bwd, padding="SAME")[0, ..., 0]
+            vzz = (vz_fwd - vz_bwd) / dz
+            vxx = (vx_fwd - vx_bwd) / dx
+            lap_v = vzz + vxx
+
+            pred_loss = mse_loss(ŷ - y)
+            reg_loss = mae_loss((1 - a) * grad_v + a * lap_v)
+            return pred_loss + lamb * reg_loss
 
     return loss_fun
 
 
-def make_ground_truth(v, X, seis):
+def make_ground_truth(seis_fun, v, X):
     Y = []
     for xi in X:
         srcsgns, srccrds, reccrds = xi
@@ -52,104 +94,152 @@ def make_combinations(d: Dict[Any, Sequence]):
     return (dict(zip(d.keys(), c)) for c in itertools.product(*d.values()))
 
 
-def make_seis_wo_dw(seis, sporder):
-    def seis_wo_dw(v, *args, **kwargs):
+def make_seis_wo_direct_fun(seis, sporder):
+    def seis_wo_direct_fun(v, *args, **kwargs):
         v_s = surface_to_depth(v, sporder // 2)
         s = seis(v, *args, **kwargs)
         dw = seis(v_s, *args, **kwargs)
         return s - dw
 
-    return seis_wo_dw
+    return seis_wo_direct_fun
 
 
-def train_epoch(optimizer,
-                name,
-                e,
-                v_e,
-                i_xiyi,
-                loss_fun,
-                seis,
-                result_dirs,
-                v=None,
-                v_0=None,
-                zero_before_depth=0,
-                accumulate_gradients=False,
-                show=False):
-
-    stop = False
-
-    if accumulate_gradients:
-        loss_grad = np.zeros_like(v_e)
-
-    for t, (i, (xi, yi)) in enumerate(i_xiyi, start=1):
-        print(f'  e={e} t={t} i={i}')
+def make_val_loss_grad_fun(seis_fun, loss_fun):
+    def val_loss_grad_fun(v, x, y):
+        srcsgns, srccrds, reccrds = x
 
         with tf.GradientTape() as tape:
-            tape.watch(v_e)
+            tape.watch(v)
 
-            # performing forward modeling
-            srcsgns, srccrds, reccrds = xi
-            ŷi = seis(v_e, srcsgns=srcsgns, srccrds=srccrds, reccrds=reccrds)
-
-            # use only valid time samples
-            yi = yi[:ŷi.shape[0]]
+            ŷ = seis_fun(v, srcsgns=srcsgns, srccrds=srccrds, reccrds=reccrds)
+            y = y[:ŷ.shape[0]]
 
             # normalizing amplitudes
-            norm_coef = np.sum(yi * ŷi) / np.sum(ŷi * ŷi)
-            ŷi = norm_coef * ŷi
+            norm_coef = tf.reduce_sum(y * ŷ) / tf.reduce_sum(ŷ * ŷ)
+            ŷ *= norm_coef
 
-            loss = loss_fun(ŷi, yi)
+            loss = loss_fun(ŷ, y)
+        loss_grad = tape.gradient(loss, v).numpy()
 
-        loss_grad_i = tape.gradient(loss, v_e).numpy()
+        return ŷ, loss, loss_grad
 
-        # loss_grad_i = clip(loss_grad_i, 0.02)
-        loss_grad_i = zero_shallow(loss_grad_i, zero_before_depth)
+    return val_loss_grad_fun
 
-        if accumulate_gradients:
-            loss_grad += loss_grad_i / len(i_xiyi)
 
-        fig_filename = f'{name}_e={e}_t={t}_i={i}_loss={loss:.4g}.png'
-        fig_path = join(result_dirs['v_plot'], fig_filename)
-        fig_title = f'Epoch {e}, Iteration {t} (Shot {i}), Loss={loss:.4g}'
-        plot_velocities(
-            v,
-            v_0,
-            v_e,
-            loss_grad if accumulate_gradients else loss_grad_i,
-            title=fig_title,
-            figname=fig_path,
-            show=show,
-        )
+def train_epoch(epoch,
+                optimizer,
+                v_e,
+                X,
+                Y,
+                loss_grad_fun,
+                seis,
+                result_dirs,
+                preffixes=(),
+                v_true=None,
+                v_0=None,
+                zero_before_depth=0,
+                batch_size=1,
+                accum_grads=False,
+                show=False):
+    diverged = False
 
-        fig_path = join(result_dirs['seis_plot'], fig_filename)
-        plot_seismograms(
-            ŷi,
-            yi,
-            title=fig_title,
-            figname=fig_path,
-            show=show,
-        )
+    n_batches = X.shape[0] // batch_size
+    batches = np.random.permutation(X.shape[0])
+    batches = batches[:n_batches * batch_size]
+    batches = batches.reshape((n_batches, batch_size))
 
-        if not np.isfinite(loss):
-            stop = True
+    epoch_mean_loss = 0
+    epoch_mean_loss_grad = np.zeros_like(v_e) if accum_grads else None
+    for batch_num, batch in enumerate(batches):
+        iter_desc = [f'e={1+epoch}', f'b={1+batch_num}']
+
+        # TODO
+        # cluster parallelization can be applied here, i.e.:
+        # `tf.distribute.get_replica_context().all_reduce('sum', grads)`
+        batch_mean_loss = 0
+        batch_mean_loss_grad = np.zeros_like(v_e)
+        for shot_num, shot_idx in batch:
+            shot_desc = [
+                *iter_desc,
+                f's={1+shot_num}'
+                f'i={1+shot_idx}',
+            ]
+
+            print('  ', *shot_desc)
+            x, y = X[shot_idx], Y[shot_idx]
+            ŷ, shot_loss, shot_loss_grad = val_loss_grad_fun(v_e, x, y).numpy()
+
+            # processing gradients
+            # shot_loss_grad = clip(shot_loss_grad, 0.02)
+            shot_loss_grad = zero_shallow(shot_loss_grad, zero_before_depth)
+
+            batch_mean_loss += shot_loss / batch_size
+            batch_mean_loss_grad += shot_loss_grad / batch_size
+
+        epoch_mean_loss += batch_mean_loss / n_batches
+        if accum_grads:
+            epoch_mean_loss_grad += batch_mean_loss_grad / n_batches
+
+        base_desc = [*preffixes, *iter_desc]
+        full_desc = [*base_desc, f'loss={batch_mean_loss:.4g}']
+        full_title = [
+            f'Epoch {1+epoch}', f'Batch {1+batch_num}',
+            f'(Last shot={1+shot_idx})', '-', f'Loss={batch_mean_loss:.4g}'
+        ]
+
+        # plotting data
+        fig_filename = '_'.join(full_desc) + '.png'
+        fig_title = ' '.join(full_title)
+
+        if result_dirs.get('v_plot'):
+            fig_path = join(result_dirs['v_plot'], fig_filename)
+            plot_velocities(
+                v_true,
+                v_0,
+                v_e,
+                epoch_mean_loss_grad if accum_grads else batch_mean_loss_grad,
+                title=fig_title,
+                figname=fig_path,
+                show=show)
+
+        if result_dirs.get('seis_plot'):
+            fig_path = join(result_dirs['seis_plot'], fig_filename)
+            plot_seismograms(ŷ,
+                             y,
+                             title=fig_title,
+                             figname=fig_path,
+                             show=show)
+
+        if not np.isfinite(batch_mean_loss):
+            diverged = True
             break
 
-        if not accumulate_gradients:
-            optimizer.apply_gradients(((loss_grad_i, v_e), ))
+        # apply gradients
+        if not accum_grads:
+            optimizer.apply_gradients(((batch_mean_loss_grad, v_e), ))
 
-    if accumulate_gradients:
-        optimizer.apply_gradients(((loss_grad, v_e), ))
-
-    # save model data
-    v_path = join(result_dirs['v_data'], f'{name}_e={e}_t={t}_i={i}.bin')
-    todiscarray(v_path, v_e.numpy())
+    if accum_grads:
+        optimizer.apply_gradients(((epoch_mean_loss_grad, v_e), ))
 
     if not np.all(np.isfinite(v_e)):
-        stop = True
+        diverged = True
 
-    # parallelization tip
-    # grads = tf.distribute.get_replica_context().all_reduce('sum', grads)
-    return optimizer, v_e, stop
+    if result_dirs.get('v_data'):
+        epoch_desc = [
+            *preffixes,
+            f'e={1+epoch}',
+            f'loss={epoch_mean_loss:.4g}',
+            f'err={v_rmse:.4g}',
+        ]
+
+        # save model variables
+        v_file = '_'.join(epoch_desc) + '.bin'
+        v_path = join(result_dirs['v_data'], v_file)
+        todiscarray(v_path, v_e.numpy())
+
+    metrics = {'loss': epoch_mean_loss}
+
+    return optimizer, v_e, metrics, diverged
 
 
 if __name__ == '__main__':
@@ -165,14 +255,14 @@ if __name__ == '__main__':
 
     model = marmousi_model
     # model = multi_layered_model
-    v = model.load()
+    v_true = model.load()
 
     shape = nz, nx = model.shape
     delta = dz, dx = model.delta
     model_name = model.name
 
     dt_dat = 0.004
-    dt_min = calc_dt(np.max(v), dz, dx)
+    dt_min = calc_dt(np.max(v_true), dz, dx)
     # dt_div = int(np.ceil(dt_dat / dt_min))
     # dt = dt_dat / dt_div
     dt = dt_min
@@ -182,7 +272,7 @@ if __name__ == '__main__':
 
     # seismic source
     # nu = 2  # Hz
-    nu_max = np.min(v) / (10 * dx)
+    nu_max = np.min(v_true) / (10 * dx)
     nu = nu_max
     srcsgn = rickerwave(nu, dt)
 
@@ -196,7 +286,7 @@ if __name__ == '__main__':
                           all_recs=True)
     elif model_name == 'marmousi':
         downscale = 4
-        v = v[::downscale, ::downscale]
+        v_true = v_true[::downscale, ::downscale]
         shape = nz, nx = v.shape
         dz, dx = downscale * dz, downscale * dx
 
@@ -217,23 +307,22 @@ if __name__ == '__main__':
 
     # modeling parameters
     sporder = 8
-    awm = make_awm(v.shape,
+    awm = make_awm(v_true.shape,
                    dz,
                    dx,
                    dt,
                    tsolver='fd',
                    spsolver='fd',
                    sporder=sporder,
-                   vmax=np.max(v))
-    seis = partial(awm, nt=nt, out='seis')
-
-    seis_wo_dw = make_seis_wo_dw(seis, sporder)
+                   vmax=np.max(v_true))
+    seis_fun = partial(awm, nt=nt, out='seis')
+    seis_wo_direct_fun = make_seis_wo_direct_fun(seis, sporder)
 
     # START MAKING DATASET
-    X = (*zip(srcsgns, srccrds, reccrds), )
+    X = [*zip(srcsgns, srccrds, reccrds)]
 
     if not isfile(DIR_CONFIG['Y_old']):
-        Y = make_ground_truth(v, X, seis=seis_wo_dw)
+        Y = make_ground_truth(seis_wo_direct_fun, v_true, X)
         Y_text = dumps(Y)
         with open(DIR_CONFIG['Y_old'], 'wb') as f:
             f.write(Y_text)
@@ -253,16 +342,16 @@ if __name__ == '__main__':
         makedirs(d, exist_ok=True)
 
     loss_fun = make_loss_fun(lamb=0)
+    val_loss_grad_fun = make_val_loss_grad_fun(seis_wo_direct_fun, loss_fun)
 
     # initial model for fwi
     maintain_before_depth = sporder // 2
     # maintain_before_depth = 0
-    v_0 = depth_lowpass(v, ws=30, min_depth=maintain_before_depth)
+    v_0 = depth_lowpass(v_true, ws=30, min_depth=maintain_before_depth)
 
     # training
     show = False
-    accumulate_gradients = False
-    shuffle_shots = True
+    accum_grads = False
     zero_before_depth = maintain_before_depth
     epochs = 100
     optimizer_param_spaces = {
@@ -285,9 +374,6 @@ if __name__ == '__main__':
         # },
     }
 
-    # Setting up history
-    histories = {}
-
     for optimizer_name, param_space in optimizer_param_spaces.items():
 
         if optimizer_name == 'adam':
@@ -303,54 +389,62 @@ if __name__ == '__main__':
 
             param_strs = [f'{p}={v}' for p, v in optimizer_params.items()]
 
-            name = '_'.join(
-                [NOW, model_name, f'opt={optimizer_name}', *param_strs])
+            preffixes = [NOW, model_name, f'o={optimizer_name}', *param_strs]
 
-            histories[' '.join(param_strs)] = {
+            name = '_'.join(preffixes)
+
+            histories = {
                 'train': AccumulatingDict(),
                 'test': AccumulatingDict(),
             }
 
-            # for the pickling part
-            # histories = {k: dict(v) for k, v in histories.items()}
-
             v_e = tf.Variable(v_0, trainable=True)
 
-            v_path = join(result_dirs['v_data'], f'{name}_e=0_t=0_i=0.bin')
+            v_filename = '_'.join([*preffixes, 'e=0']) + '.bin'
+            v_path = join(result_dirs['v_data'], v_filename)
             todiscarray(v_path, v_e.numpy())
 
             for freq, srcsgn in multi_scale_sources.items():
+                # train_idx, test_idx
                 srcsgns = make_srcsgns(srcsgn)
                 X_freq = [*zip(srcsgns, srccrds, reccrds)]
                 Y_freq = [convolve(y, srcsgn[:, None], mode='same') for y in Y]
 
-                # Shots
-                i_xiyi = [*enumerate(zip(X_freq, Y_freq), start=1)]
+                stop_condition = StopCondition(growing_is_good=False,
+                                               patience=15)
 
-                for e in range(1, epochs + 1):
+                for epoch in range(1, epochs + 1):
 
-                    if accumulate_gradients:
-                        loss_grad = np.zeros_like(v_e)
-
-                    if shuffle_shots:  # TODO: goes to train epoch
-                        shuffle(i_xiyi)
-
-                    optimizer, ve, stop = train_epoch(
+                    optimizer, v_e, train_metrics, diverged = train_epoch(
+                        epoch=epoch,
                         optimizer=optimizer,
-                        name=name,
-                        e=e,
                         v_e=v_e,
-                        i_xiyi=i_xiyi,
-                        loss_fun=loss_fun,
-                        seis=seis_wo_dw,
+                        X=X,
+                        Y=X,
+                        val_loss_grad_fun=val_loss_grad_fun,
                         result_dirs=result_dirs,
-                        v=v,
                         v_0=v_0,
+                        v_true=v_true,
                         zero_before_depth=zero_before_depth,
-                        accumulate_gradients=False,
+                        accum_grads=False,
+                        preffixes=preffixes,
                         show=show)
-                    if stop:
+
+                    histories['train'] += train_metrics
+
+                    v_rmse = rmse(v_e, v_true)
+
+                    stop_condition.update(train_metrics['loss'])
+                    if stop_condition.stop or diverged:
                         break
 
-                if stop:
+                if diverged:
                     break
+
+            # saving histories
+            histories_path = join(
+                result_dirs['metric_data'],
+                '_'.join(preffixes) + '.pkl',
+            )
+            histories = {k: dict(v) for k, v in histories.items()}
+            dump_to_file(histories_path, histories)
