@@ -310,6 +310,7 @@ if __name__ == '__main__':
     delta = dz, dx = model.delta
     model_name = model.name
 
+    # TODO add this to modeling function
     dt_dat = 0.004
     dt_min = calc_dt(np.max(v_true), dz, dx)
     # dt_div = int(np.ceil(dt_dat / dt_min))
