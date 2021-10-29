@@ -180,18 +180,17 @@ def make_train_epoch(val_loss_grad_fun,
         batches = batches.reshape((n_batches, batch_size))
 
         epoch_mean_loss = 0
-        epoch_mean_loss_grad = np.zeros_like(v_e) if accum_grads else None
+        epoch_mean_loss_grad = tf.zeros_like(v_e) if accum_grads else None
         for batch_num, batch in enumerate(batches):
-            iter_desc = [f'e={1+epoch}', f'b={1+batch_num}']
-
             # TODO
             # cluster parallelization can be exploited here, i.e.:
             # `tf.distribute.get_replica_context().all_reduce('sum', grads)`
             batch_mean_loss = 0
-            batch_mean_loss_grad = np.zeros_like(v_e)
+            batch_mean_loss_grad = tf.zeros_like(v_e)
             for shot_num, shot_idx in enumerate(batch):
                 shot_desc = [
-                    *iter_desc,
+                    f'e={1+epoch}'
+                    f'b={1+batch_num}'
                     f's={1+shot_num}',
                     f'i={1+shot_idx}',
                 ]
@@ -213,16 +212,16 @@ def make_train_epoch(val_loss_grad_fun,
             if accum_grads:
                 epoch_mean_loss_grad += batch_mean_loss_grad / n_batches
 
-            base_desc = [*preffixes, *iter_desc]
-            full_desc = [*base_desc, f'loss={batch_mean_loss:.4g}']
+            full_desc = [*preffixes,
+                        f'b={1+batch_num}', f'loss={batch_mean_loss:.4g}']
             full_title = [
                 f'Epoch {1+epoch}', f'Batch {1+batch_num}',
-                f'(Last shot={1+shot_idx})', '-', f'Loss={batch_mean_loss:.4g}'
+                f'(Last shot={1+shot_idx})', f'Loss={batch_mean_loss:.4g}'
             ]
 
             # plotting data
             fig_filename = '_'.join(full_desc) + '.png'
-            fig_title = ' '.join(full_title)
+            fig_title = ', '.join(full_title)
 
             if accum_grads:
                 loss_grad = epoch_mean_loss_grad
@@ -276,7 +275,6 @@ def make_train_epoch(val_loss_grad_fun,
         if result_dirs.get('v_data'):
             epoch_desc = [
                 *preffixes,
-                f'e={1+epoch}',
                 f'loss={epoch_mean_loss:.4g}',
             ]
 
@@ -310,23 +308,7 @@ if __name__ == '__main__':
     delta = dz, dx = model.delta
     model_name = model.name
 
-    # TODO add this to modeling function
-    dt_dat = 0.004
-    dt_min = calc_dt(np.max(v_true), dz, dx)
-    # dt_div = int(np.ceil(dt_dat / dt_min))
-    # dt = dt_dat / dt_div
-    dt = dt_min
-
-    # nt = int(3 / dt)
-    nt = 1000
-
-    # seismic source
-    # nu = 2  # Hz
-    nu_max = np.min(v_true) / (10 * dx)
-    nu = nu_max
-    srcsgn = rickerwave(nu, dt)
-
-    print(nt, dt, nu_max)
+    print(v_true.shape)
 
     if model_name == 'multi_layered':
         array_desc = dict(geometry='40-6-0-6-40',
@@ -337,23 +319,43 @@ if __name__ == '__main__':
                           dx=1,
                           all_recs=True)
     elif model_name == 'marmousi':
-        downscale = 1
+        downscale = 4
         v_true = v_true[::downscale, ::downscale]
         shape = nz, nx = v_true.shape
         dz, dx = downscale * dz, downscale * dx
 
         array_desc = dict(
-            geometry=f'1300-{1*dx}-0-{1*dx}-1300',
+            # geometry=f'{20*dx}-{1*dx}-0-{1*dx}-{20*dx}',
+            geometry=f'{0*dx}-{1*dx}-0-{1*dx}-{0*dx}',
             rr=dx,
             # ss=(nx // 20) * dx,
-            ss=(nx // 5) * dx,
+            # ss=(nx // 20) * dx,
+            ss=5*dx,
             dx=dx,
             nx=nx,
             ns=None,
             all_recs=True)
 
+    # TODO add this to modeling function
+    dt_dat = 0.004
+    dt_max = calc_dt(np.max(v_true), dz, dx)
+    dt_div = int(np.ceil(dt_dat / dt_max))
+    dt = dt_dat / dt_div
+    # dt = dt_max
+
+    nt = int(4 / dt)
+
+    # seismic source
+    # nu = 2  # Hz
+    nu_max = np.min(v_true) / (10 * dx)
+    nu = int(nu_max)
+    srcsgn = rickerwave(nu, dt)
+
+    print(nt, dt, nu)
+
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
+    print(len(srccrds))
 
     srcsgns = make_srcsgns(srcsgn)
 
@@ -384,7 +386,7 @@ if __name__ == '__main__':
     # END MAKING DATASET
 
     test_split = 1 / 5
-    freqs = 2, 4, 8, 17
+    freqs = 5, 10, 15, 17
     multi_scale_sources = {freq: rickerwave(freq, dt) for freq in freqs}
 
     # making directories
@@ -421,7 +423,8 @@ if __name__ == '__main__':
     optimizer_param_spaces = {
         'adam': {
             # 'learning_rate': (1 * 10**i for i in range(1, 2 + 1)), #2 is good
-            'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
+            # 'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
+            'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
             'beta_1': (.9, ),  # .7,
             'beta_2': (.9, ),  # .7,
         },
@@ -470,15 +473,18 @@ if __name__ == '__main__':
             todiscarray(v_path, v_e.numpy())
 
             for freq, srcsgn in multi_scale_sources.items():
+                freq_preffixes = [*preffixes, f'f={freq}']
+
                 # train_idx, test_idx
                 srcsgns = make_srcsgns(srcsgn)
                 X_freq = [*zip(srcsgns, srccrds, reccrds)]
                 Y_freq = [convolve(y, srcsgn[:, None], mode='same') for y in Y]
 
                 stop_condition = StopCondition(growing_is_good=False,
-                                               patience=10)
+                                               patience=5)
 
                 for epoch in range(max_epochs):
+                    epoch_preffixes = [*freq_preffixes, f'e={1+epoch}']
 
                     optimizer, v_e, train_metrics, diverged = train_epoch(
                         epoch=epoch,
@@ -490,7 +496,7 @@ if __name__ == '__main__':
                         v_0=v_0,
                         v_true=v_true,
                         zero_before_depth=zero_before_depth,
-                        preffixes=preffixes,
+                        preffixes=epoch_preffixes,
                         show=show)
 
                     test_metrics = eval_epoch(v_e, X, Y, idx_test)

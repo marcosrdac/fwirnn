@@ -5,6 +5,8 @@ from typing import Sequence, Callable
 from utils.discarrays import discarray
 from os.path import join, expanduser, isdir
 import numpy as np
+import matplotlib as mpl
+mpl.use('Agg')
 
 # Directory settings
 # - Base data directory
@@ -76,8 +78,8 @@ def load_multi_layered(*args, **kwargs):
 
 marmousi_model = VelocityModel(name='marmousi',
                                load=load_marmousi,
-                               shape=(350, 350),
-                               delta=(25, 8),
+                               shape=(375, 369),
+                               delta=(8, 25),
                                path=join(DIR_CONFIG['model'], 'marmousi',
                                          'marmousi_f.bin'))
 

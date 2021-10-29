@@ -1,3 +1,4 @@
+import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -6,6 +7,32 @@ if __name__ == '__main__':
     from filters import seis_gain
 else:
     from .filters import seis_gain
+
+
+def min_max_absmax(*arrs):
+    stats = []
+    for arr in arrs:
+        if isinstance(arr, tf.Tensor):
+            vmin = tf.reduce_min(arr).numpy()
+            vmax = tf.reduce_max(arr).numpy()
+            # absvmax = tf.reduce_max(tf.abs([vmin, vmax])).numpy()
+        else:
+            vmin = np.min(arr)
+            vmax = np.max(arr)
+        absvmax = np.max(np.abs([vmin, vmax]))
+        stats.append([vmin, vmax, absvmax])
+    if len(stats) == 1:
+        return stats[0]
+    else:
+        return stats
+
+def min_max_val(*arrs):
+    min_vals = []
+    for arr in arrs:
+        if isinstance(arr, tf.Tensor):
+            arr = arr.numpy()
+        min_vals.append(np.min(np.abs(arr)))
+    return np.max(max_vals)
 
 
 def plot_velocities(v_e,
@@ -35,8 +62,7 @@ def plot_velocities(v_e,
 
     extent = (0, dx * v_e.shape[1], dz * v_e.shape[0], 0)
 
-    vmin, vmax = np.min(v_e), np.max(v_e)
-    avmax = np.max(np.abs((vmin, vmax)))
+    vmin, vmax, avmax = min_max_absmax(v_e)
     axes.flat[0].set_title('$v_e$')
     im = axes.flat[0].imshow(v_e, vmin=vmin, vmax=vmax, extent=extent)
     cbar = fig.colorbar(im, ax=axes.flat[0])
@@ -47,7 +73,7 @@ def plot_velocities(v_e,
     cbar = fig.colorbar(im, ax=axes.flat[1])
     cbar.set_label(cbar_label)
 
-    vmin, vmax = np.min(loss_grad), np.max(loss_grad)
+    vmin, vmax, avmax = min_max_absmax(loss_grad)
     avmax = np.max(np.abs((vmin, vmax)))
     if not np.isfinite(avmax):
         avmax = 0
@@ -58,18 +84,15 @@ def plot_velocities(v_e,
     loss_grad_thresh = loss_grad_abs_mean - .5 * loss_grad_abs_std
     loss_grad_thresh = loss_grad_thresh if loss_grad_thresh > 1e-8 else 1e-8
     im = axes.flat[3].imshow(loss_grad,
-                             vmin=-avmax,
-                             vmax=avmax,
                              extent=extent,
                              norm=mpl.colors.SymLogNorm(loss_grad_thresh,
-                                                        base=10),
+                                                        base=10, vmin=-avmax, vmax=avmax),
                              cmap='seismic')
     cbar = fig.colorbar(im, ax=axes.flat[3])
     cbar.set_label(cbar_label)
 
     delta = (v_e - v_0)
-    vmin, vmax = np.min(delta), np.max(delta)
-    avmax = np.max(np.abs((vmin, vmax)))
+    vmin, vmax, avmax = min_max_absmax(delta)
     axes.flat[2].set_title('$v_e - v_0$')
     im = axes.flat[2].imshow(delta,
                              vmin=-avmax,

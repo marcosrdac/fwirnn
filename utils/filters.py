@@ -30,10 +30,10 @@ def tf_surface_to_depth(arr, min_depth=0):
 
 
 def surface_to_depth(arr, *args, **kwargs):
-    if isinstance(arr, tf.Tensor):
-        return tf_surface_to_depth(arr, *args, **kwargs)
-    else:
+    if isinstance(arr, np.ndarray):
         return np_surface_to_depth(arr, *args, **kwargs)
+    else:
+        return tf_surface_to_depth(arr, *args, **kwargs)
 
 
 def clip(arr, keep=1.0):
