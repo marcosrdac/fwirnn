@@ -18,12 +18,8 @@ from utils.discarrays import discarray, todiscarray
 from utils.structures import AccumulatingDict
 from utils.stopping import StopCondition
 from sklearn.model_selection import train_test_split
-import pickle
-
-
-def dump_to_file(path, data):
-    with open(path, 'wb') as f:
-        pickle.dump(data, f)
+from utils.pickleutils import pickle_to, unpickle_from
+from utils.state_info import StateInfo
 
 
 def mse(ŷ, y=None, reduce=tf.reduce_mean):
@@ -164,12 +160,13 @@ def make_train_epoch(val_loss_grad_fun,
                     v_e,
                     X,
                     Y,
-                    preffixes=(),
+                    info=StateInfo(),
                     v_0=None,
                     v_true=None,
                     zero_before_depth=0,
                     idx_train=None,
                     show=False):
+
         diverged = False
 
         idx_train = np.arange(len(X)) if idx_train is None else idx_train
@@ -182,23 +179,23 @@ def make_train_epoch(val_loss_grad_fun,
         epoch_mean_loss = 0
         epoch_mean_loss_grad = tf.zeros_like(v_e) if accum_grads else None
         for batch_num, batch in enumerate(batches):
+            batch_info = info.copy()
+            batch_info['batch'] = 1 + batch_num
+
             # TODO
             # cluster parallelization can be exploited here, i.e.:
             # `tf.distribute.get_replica_context().all_reduce('sum', grads)`
             batch_mean_loss = 0
             batch_mean_loss_grad = tf.zeros_like(v_e)
             for shot_num, shot_idx in enumerate(batch):
-                shot_desc = [
-                    f'e={1+epoch}'
-                    f'b={1+batch_num}'
-                    f's={1+shot_num}',
-                    f'i={1+shot_idx}',
-                ]
-
-                print(' ', *shot_desc, end=' ')
+                shot_info = batch_info.copy()
+                shot_info['shot'] = 1 + shot_num
+                shot_info['shot_idx'] = 1 + shot_idx, 'i'
+                print(f"  {shot_info.print(sep='_')}", end=' ')
                 x, y = X[shot_idx], Y[shot_idx]
                 ŷ, shot_loss, shot_loss_grad = val_loss_grad_fun(v_e, x, y)
                 print(f'loss={shot_loss:.4g}')
+                shot_info['loss'] = shot_loss
 
                 # processing gradients
                 # shot_loss_grad = clip(shot_loss_grad, 0.02)
@@ -211,17 +208,18 @@ def make_train_epoch(val_loss_grad_fun,
             epoch_mean_loss += batch_mean_loss / n_batches
             if accum_grads:
                 epoch_mean_loss_grad += batch_mean_loss_grad / n_batches
+            batch_info['loss'] = batch_mean_loss
 
-            full_desc = [*preffixes,
-                        f'b={1+batch_num}', f'loss={batch_mean_loss:.4g}']
-            full_title = [
-                f'Epoch {1+epoch}', f'Batch {1+batch_num}',
-                f'(Last shot={1+shot_idx})', f'Loss={batch_mean_loss:.4g}'
-            ]
+            # save model variables
+            if result_dirs.get('v_data'):
+                batch_info['loss'] = batch_mean_loss
+                v_file = batch_info.print(sep='_') + '.bin'
+                v_path = join(result_dirs['v_data'], v_file)
+                todiscarray(v_path, v_e.numpy())
 
             # plotting data
-            fig_filename = '_'.join(full_desc) + '.png'
-            fig_title = ', '.join(full_title)
+            fig_filename = batch_info.print(sep='_') + '.png'
+            fig_title = batch_info.pprint(sep=', ')
 
             if accum_grads:
                 loss_grad = epoch_mean_loss_grad
@@ -272,14 +270,11 @@ def make_train_epoch(val_loss_grad_fun,
         if not np.all(np.isfinite(v_e)):
             diverged = True
 
+        # save model variables
         if result_dirs.get('v_data'):
-            epoch_desc = [
-                *preffixes,
-                f'loss={epoch_mean_loss:.4g}',
-            ]
-
-            # save model variables
-            v_file = '_'.join(epoch_desc) + '.bin'
+            epoch_info = info.copy()
+            epoch_info['loss'] = epoch_mean_loss
+            v_file = epoch_info.print(sep='_') + '.bin'
             v_path = join(result_dirs['v_data'], v_file)
             todiscarray(v_path, v_e.numpy())
 
@@ -330,7 +325,7 @@ if __name__ == '__main__':
             rr=dx,
             # ss=(nx // 20) * dx,
             # ss=(nx // 20) * dx,
-            ss=5*dx,
+            ss=5 * dx,
             dx=dx,
             nx=nx,
             ns=None,
@@ -376,13 +371,11 @@ if __name__ == '__main__':
 
     # START MAKING DATASET
     X = [*zip(srcsgns, srccrds, reccrds)]
-    if not isfile(DIR_CONFIG['Y_old']):
-        Y = make_ground_truth(seis_wo_direct_fun, v_true, X)
-        with open(DIR_CONFIG['Y_old'], 'wb') as f:
-            pickle.dump(Y, f)
+    if isfile(DIR_CONFIG['Y_old']):
+        Y = unpickle_from(DIR_CONFIG['Y_old'])
     else:
-        with open(DIR_CONFIG['Y_old'], 'rb') as f:
-            Y = pickle.load(f)
+        Y = make_ground_truth(seis_wo_direct_fun, v_true, X)
+        pickle_to(DIR_CONFIG['Y_old'], Y)
     # END MAKING DATASET
 
     test_split = 1 / 5
@@ -454,11 +447,12 @@ if __name__ == '__main__':
         for optimizer_params in make_combinations(param_space):
             optimizer = optimizer_generator(**optimizer_params)
 
-            param_strs = [f'{p}={v}' for p, v in optimizer_params.items()]
-
-            preffixes = [NOW, model_name, f'o={optimizer_name}', *param_strs]
-
-            name = '_'.join(preffixes)
+            fwi_info = StateInfo()
+            fwi_info['optimizer'] = optimizer_name
+            for p, v in optimizer_params.items():
+                print(p)
+                fwi_info[p] = v, p
+            fwi_info['frequency'] = 0
 
             histories = {
                 'param': AccumulatingDict(),
@@ -468,12 +462,13 @@ if __name__ == '__main__':
 
             v_e = tf.Variable(v_0, trainable=True)
 
-            v_filename = '_'.join([*preffixes, 'e=0']) + '.bin'
+            v_filename = f"{fwi_info.print(sep='_')}.bin"
             v_path = join(result_dirs['v_data'], v_filename)
             todiscarray(v_path, v_e.numpy())
 
             for freq, srcsgn in multi_scale_sources.items():
-                freq_preffixes = [*preffixes, f'f={freq}']
+                # fwi_fun
+                fwi_info['freqency'] = freq
 
                 # train_idx, test_idx
                 srcsgns = make_srcsgns(srcsgn)
@@ -484,7 +479,7 @@ if __name__ == '__main__':
                                                patience=5)
 
                 for epoch in range(max_epochs):
-                    epoch_preffixes = [*freq_preffixes, f'e={1+epoch}']
+                    fwi_info['epoch'] = 1 + epoch
 
                     optimizer, v_e, train_metrics, diverged = train_epoch(
                         epoch=epoch,
@@ -496,7 +491,7 @@ if __name__ == '__main__':
                         v_0=v_0,
                         v_true=v_true,
                         zero_before_depth=zero_before_depth,
-                        preffixes=epoch_preffixes,
+                        info=fwi_info,
                         show=show)
 
                     test_metrics = eval_epoch(v_e, X, Y, idx_test)
@@ -508,8 +503,9 @@ if __name__ == '__main__':
                         v_rmse = rmse(v_e, v_true)
                         histories['param'] += {'rmse': v_rmse}
 
-                    stop_condition.update(train_metrics['loss'])
+                    stop_condition.update(train_metrics['loss'], v_e.numpy())
                     if stop_condition.stop or diverged:
+                        v_e = tf.Variable(stop_condition.best_checkpoint)
                         break
 
                 if diverged:
