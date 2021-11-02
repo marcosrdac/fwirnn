@@ -8,18 +8,17 @@ import matplotlib as mpl
 from typing import Any, Sequence, Dict, Callable
 import itertools
 from utils.filters import depth_lowpass, zero_shallow, clip, seis_gain, surface_to_depth
-from awm import make_awm
+from awm import make_awm, calc_dt_max, calc_dt_mod_and_samp_rate, calc_freq_max
 from utils.plotutils import plot_seismograms, plot_velocities
 from functools import partial
 from utils.wavelets import rickerwave
 from seismicarrays import make_default_arrays, parse_geometry, make_array
 import tensorflow.keras.optimizers as optimizers
 from utils.discarrays import discarray, todiscarray
-from utils.structures import AccumulatingDict
+from utils.structures import StateInfo, AccumulatingDict
 from utils.stopping import StopCondition
 from sklearn.model_selection import train_test_split
 from utils.pickleutils import pickle_to, unpickle_from
-from utils.state_info import StateInfo
 
 
 def mse(ŷ, y=None, reduce=tf.reduce_mean):
@@ -78,14 +77,18 @@ def make_loss_fun(lamb=0, a=0., dz=1, dx=1, reduce=tf.reduce_mean):
     return loss_fun
 
 
-def make_ground_truth(seis_fun, v, X):
+def make_ground_truth(seis_fun, v, X, verbose=True):
     Y = []
-    print(f'Modeling {len(X)} seismograms')
+    if verbose:
+        print(f'Modeling {len(X)} seismograms')
     for i, xi in enumerate(X, start=1):
-        print(f'- seismogram #{i}')
+        if verbose:
+            print(f'- Seismogram #{i}')
         srcsgns, srccrds, reccrds = xi
         yi = seis_fun(v=v, srcsgns=srcsgns, srccrds=srccrds, reccrds=reccrds)
         Y.append(yi)
+    if verbose:
+        print()
     return Y
 
 
@@ -126,12 +129,27 @@ def make_val_loss_grad_fun(seis_fun, loss_fun):
     return val_loss_grad_fun
 
 
-def make_eval_epoch(seis_fun, loss_fun):
-    def eval_epoch(v, X, Y, idx):
-        print('Running test shots:')
+def make_eval_epoch(seis_fun, loss_fun, verbose=True):
+    def eval_epoch(v, X, Y, idx, info=None):
+        if verbose:
+            print('Testing')
+
+        if info is None:
+            epoch_info = StateInfo()
+        else:
+            epoch_info = info.copy()
+
         mean_loss = 0
         for shot_num, shot_idx in enumerate(idx):
-            print(f'  s={1+shot_num}', f'i={1+shot_idx}', end=' ')
+            shot_info = epoch_info.copy()
+            shot_info['shot'] = 1 + shot_num
+            shot_info['shot_idx'] = 1 + shot_idx, 'i'
+            if verbose:
+                print('- ',
+                      shot_info.print('frequency', 'epoch', 'shot',
+                                      'shot_idx'),
+                      sep='',
+                      end=' ')
             x, y = X[shot_idx], Y[shot_idx]
             srcsgns, srccrds, reccrds = x
             ŷ = seis_fun(v=v,
@@ -139,10 +157,14 @@ def make_eval_epoch(seis_fun, loss_fun):
                          srccrds=srccrds,
                          reccrds=reccrds)
             loss = loss_fun(ŷ, y)
-            print(f'loss={loss:.4g}')
             mean_loss += loss
+            shot_info['loss'] = loss
+            if verbose:
+                print(shot_info.print('loss'))
+
         mean_loss /= len(idx)
-        print(f'  mean_loss={mean_loss:.4g}')
+        epoch_info['mean_loss'] = mean_loss
+        print('> ', epoch_info.print('frequncy', 'epoch', 'mean_loss'), sep='')
         metrics = {'loss': mean_loss}
         return metrics
 
@@ -155,9 +177,9 @@ def make_train_epoch(val_loss_grad_fun,
                      dt,
                      accum_grads=False,
                      batch_size=1,
-                     result_dirs={}):
-    def train_epoch(epoch,
-                    optimizer,
+                     result_dirs={},
+                     verbose=True):
+    def train_epoch(optimizer,
                     v_e,
                     X,
                     Y,
@@ -168,6 +190,8 @@ def make_train_epoch(val_loss_grad_fun,
                     idx_train=None,
                     show=False):
 
+        if verbose:
+            print('Training')
         diverged = False
 
         idx_train = np.arange(len(X)) if idx_train is None else idx_train
@@ -187,16 +211,23 @@ def make_train_epoch(val_loss_grad_fun,
             # cluster parallelization can be exploited here, i.e.:
             # `tf.distribute.get_replica_context().all_reduce('sum', grads)`
             batch_mean_loss = 0
-            batch_mean_loss_grad = tf.zeros_like(v_e)
+            # batch_mean_loss_grad = tf.zeros_like(v_e)
+            batch_loss_grad = tf.zeros_like(v_e)
             for shot_num, shot_idx in enumerate(batch):
                 shot_info = batch_info.copy()
                 shot_info['shot'] = 1 + shot_num
                 shot_info['shot_idx'] = 1 + shot_idx, 'i'
-                print(f"  {shot_info.print(sep='_')}", end=' ')
+                if verbose:
+                    print('- ',
+                          shot_info.print('frequency', 'epoch', 'batch',
+                                          'shot', 'shot_idx'),
+                          sep='',
+                          end=' ')
                 x, y = X[shot_idx], Y[shot_idx]
                 ŷ, shot_loss, shot_loss_grad = val_loss_grad_fun(v_e, x, y)
-                print(f'loss={shot_loss:.4g}')
                 shot_info['loss'] = shot_loss
+                if verbose:
+                    print(shot_info.print('loss'))
 
                 # processing gradients
                 # shot_loss_grad = clip(shot_loss_grad, 0.02)
@@ -204,43 +235,48 @@ def make_train_epoch(val_loss_grad_fun,
                                               zero_before_depth)
 
                 batch_mean_loss += shot_loss / batch_size
-                batch_mean_loss_grad += shot_loss_grad / batch_size
+                # batch_mean_loss_grad += shot_loss_grad / batch_size
+                batch_loss_grad += shot_loss_grad
 
+            # update epoch with batch results
             epoch_mean_loss += batch_mean_loss / n_batches
             if accum_grads:
-                epoch_mean_loss_grad += batch_mean_loss_grad / n_batches
+                # epoch_mean_loss_grad += batch_mean_loss_grad / n_batches
+                epoch_mean_loss_grad += batch_loss_grad / n_batches
             batch_info['loss'] = batch_mean_loss
 
             # save model variables
             if result_dirs.get('v_data'):
-                batch_info['loss'] = batch_mean_loss
-                v_file = batch_info.print(sep='_') + '.bin'
+                v_file = batch_info.filename() + '.bin'
                 v_path = join(result_dirs['v_data'], v_file)
                 todiscarray(v_path, v_e.numpy())
 
             # plotting data
-            fig_filename = batch_info.print(sep='_') + '.png'
-            fig_title = batch_info.print(sep=', ')
+            fig_filename = batch_info.filename() + '.png'
+            fig_title = batch_info.pprint('frequency', 'epoch', 'batch',
+                                          'shot', 'shot_idx', 'loss')
 
             if accum_grads:
                 loss_grad = epoch_mean_loss_grad
             else:
-                loss_grad = batch_mean_loss_grad
+                # loss_grad = batch_mean_loss_grad
+                loss_grad = batch_loss_grad
             if result_dirs.get('v_plot'):
                 fig_path = join(result_dirs['v_plot'], fig_filename)
                 # TODO plot_velocities should not depend on v true
-                plot_velocities(v_e=v_e,
-                                loss_grad=loss_grad,
-                                v_0=v_0,
-                                v_true=v_true,
-                                dz=dz,
-                                dx=dx,
-                                xlabel='x (m)',
-                                ylabel='z (m)',
-                                cbar_label='m/s',
-                                title=fig_title,
-                                figname=fig_path,
-                                show=show)
+                plot_velocities(
+                    v_e=v_e,
+                    loss_grad=loss_grad,
+                    v_0=v_0,
+                    v_true=v_true,
+                    dz=dz,
+                    dx=dx,
+                    xlabel='x (m)',  # TODO: not only m
+                    ylabel='z (m)',  # TODO: not only m
+                    cbar_label='m/s',  # TODO: not only m/s
+                    title=fig_title,
+                    figname=fig_path,
+                    show=show)
 
             if result_dirs.get('seis_plot'):
                 fig_path = join(result_dirs['seis_plot'], fig_filename)
@@ -252,7 +288,7 @@ def make_train_epoch(val_loss_grad_fun,
                     # xlabel='x (km)',
                     dx=1,
                     xlabel='Trace index',
-                    ylabel='t (s)',
+                    ylabel='t (s)',  # TODO: not only t
                     title=fig_title,
                     figname=fig_path,
                     show=show)
@@ -263,10 +299,11 @@ def make_train_epoch(val_loss_grad_fun,
 
             # apply gradients
             if not accum_grads:
-                optimizer.apply_gradients(((batch_mean_loss_grad, v_e), ))
+                # optimizer.apply_gradients([(batch_mean_loss_grad, v_e)])
+                optimizer.apply_gradients([(batch_loss_grad, v_e)])
 
         if accum_grads:
-            optimizer.apply_gradients(((epoch_mean_loss_grad, v_e), ))
+            optimizer.apply_gradients([(epoch_mean_loss_grad, v_e)])
 
         if not np.all(np.isfinite(v_e)):
             diverged = True
@@ -275,7 +312,7 @@ def make_train_epoch(val_loss_grad_fun,
         if result_dirs.get('v_data'):
             epoch_info = info.copy()
             epoch_info['loss'] = epoch_mean_loss
-            v_file = epoch_info.print(sep='_') + '.bin'
+            v_file = epoch_info.filename() + '.bin'
             v_path = join(result_dirs['v_data'], v_file)
             todiscarray(v_path, v_e.numpy())
 
@@ -292,28 +329,29 @@ if __name__ == '__main__':
     from scipy.signal import convolve
     NOW = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    def calc_dt(v, dz, dx):
-        '''Maximum dt used for a model, given grid spacing.'''
-        return np.sqrt((3 / 4) / ((v / dx)**2 + (v / dz)**2))
-
-    model = marmousi_model
-    # model = multi_layered_model
+    # model = marmousi_model
+    model = multi_layered_model
     v_true = model.load()
 
     shape = nz, nx = model.shape
     delta = dz, dx = model.delta
     model_name = model.name
-
     print(v_true.shape)
 
+    dt = 0.004
+    dt_max = calc_dt_max(np.max(v_true), dz, dx)
+    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
+
     if model_name == 'multi_layered':
-        array_desc = dict(geometry='40-6-0-6-40',
+        array_desc = dict(geometry='8-6-0-6-8',
                           rr=1,
-                          ss=3,
+                          ss=5,
                           ns=None,
                           nx=nx,
                           dx=1,
                           all_recs=True)
+        # 3 multi_layered_model
+        nt = int(1 / dt)
     elif model_name == 'marmousi':
         downscale = 2
         v_true = v_true[::downscale, ::downscale]
@@ -332,32 +370,25 @@ if __name__ == '__main__':
             ns=None,
             all_recs=True)
 
-    # TODO add this to modeling function
-    dt_dat = 0.004
-    dt_max = calc_dt(np.max(v_true), dz, dx)
-    dt_div = int(np.ceil(dt_dat / dt_max))
-    dt = dt_dat / dt_div
-    # dt = dt_max
-
-    nt = int(4 / dt)
+        # marmousi_model
+        nt = int(4 / dt)
 
     # seismic source
-    # nu = 2  # Hz
-    nu_max = np.min(v_true) / (10 * dx)
-    nu = int(nu_max)
-    srcsgn = rickerwave(nu, dt)
+    freq_max = calc_freq_max(v_true.min(), dz, dx)
+    freq = int(freq_max)
 
-    # TODO rename nu to freq
-    print(f'nt={nt}', f'dt={dt}', f'nu={nu}')
-    print(nt, dt, nu)
+    srcsgn = rickerwave(freq, dt)
+
+    print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
+          f'dt={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
-    print(len(srccrds))
 
     srcsgns = make_srcsgns(srcsgn)
 
     print(f'Number of shots: {len(srccrds)}')
+    exit()
 
     # modeling parameters
     sporder = 8
@@ -415,7 +446,7 @@ if __name__ == '__main__':
     show = False
     accum_grads = False
     zero_before_depth = maintain_before_depth
-    max_epochs = 100
+    max_epochs = 30
     optimizer_param_spaces = {
         'adam': {
             # 'learning_rate': (1 * 10**i for i in range(1, 2 + 1)), #2 is good
@@ -451,7 +482,6 @@ if __name__ == '__main__':
             optimizer = optimizer_generator(**optimizer_params)
 
             # fwi function
-
             fwi_info = StateInfo()
             fwi_info['optimizer'] = optimizer_name
             for p, v in optimizer_params.items():
@@ -466,7 +496,7 @@ if __name__ == '__main__':
 
             v_e = tf.Variable(v_0, trainable=True)
 
-            v_filename = f"{fwi_info.print(sep='_')}.bin"
+            v_filename = fwi_info.filename() + '.bin'
             v_path = join(result_dirs['v_data'], v_filename)
             todiscarray(v_path, v_e.numpy())
 
@@ -479,11 +509,13 @@ if __name__ == '__main__':
                 X_freq = [*zip(srcsgns, srccrds, reccrds)]
                 Y_freq = [convolve(y, srcsgn[:, None], mode='same') for y in Y]
 
-                stop_condition = StopCondition(growing_is_good=False,
+                test_stop_cond = StopCondition(growing_is_good=False,
                                                patience=5)
 
                 for epoch in range(max_epochs):
                     fwi_info['epoch'] = 1 + epoch
+
+                    v_old = v_e.numpy()
 
                     optimizer, v_e, train_metrics, diverged = train_epoch(
                         epoch=epoch,
@@ -500,16 +532,21 @@ if __name__ == '__main__':
 
                     test_metrics = eval_epoch(v_e, X, Y, idx_test)
 
+                    mean_abs_delta_v_e = np.mean(np.abs(v_e.numpy() - v_old))
+
                     histories['train'] += train_metrics
                     histories['test'] += test_metrics
+                    histories['param'] += {
+                        'mean_abs_delta_v_e': mean_abs_delta_v_e
+                    }
 
                     if v_true is not None:
                         v_rmse = rmse(v_e, v_true)
                         histories['param'] += {'rmse': v_rmse}
 
-                    stop_condition.update(train_metrics['loss'], v_e.numpy())
-                    if stop_condition.stop or diverged:
-                        v_e = tf.Variable(stop_condition.best_checkpoint)
+                    test_stop_cond.update(test_metrics['loss'], v_e.numpy())
+                    if test_stop_cond.stop or diverged:
+                        v_e = tf.Variable(test_stop_cond.best_checkpoint)
                         break
 
                 if diverged:
@@ -518,7 +555,7 @@ if __name__ == '__main__':
             # saving histories
             histories_path = join(
                 result_dirs['metric_data'],
-                fwi_info.print(sep='_') + '.pkl',
+                fwi_info.filename() + '.pkl',
             )
             histories = {k: dict(v) for k, v in histories.items()}
             pickle_to(histories_path, histories)

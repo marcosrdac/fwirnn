@@ -232,14 +232,27 @@ def make_awm_cell(
     return awm_cell
 
 
-def make_awm(shape,
-             dz,
-             dx,
-             dt,
-             spsolver='fd',
-             tsolver='fd',
-             sporder=2,
-             vmax=None):
+def calc_dt_max(v_max, dz, dx):
+    '''
+    Maximum dt used for a model of maximum velocity v_max, given grid 
+    spacings dz and dx.
+    '''
+    return np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
+
+
+
+def calc_dt_mod_and_samp_rate(dt, dt_max):
+    rate = int(np.ceil(dt / dt_max))
+    dt_mod = dt / rate
+    return dt_mod, rate
+
+def calc_freq_max(v_min, *dl):
+    dl_max = np.max(dl)
+    return v_min / (10 * dl_max)
+
+
+def make_awm(shape, dz, dx, dt, v_max, spsolver='fd', tsolver='fd', sporder=2):
+
     attenuate, padded_shape = make_attenuate(shape)
     taper = (padded_shape[0] - shape[0]) // 2
 
@@ -248,11 +261,14 @@ def make_awm(shape,
     elif spsolver == 's':
         laplacian = make_s_laplacian(padded_shape, dz, dx)
 
+    samp_rate = 1
     if tsolver == 'fd':
-        wavesolver = make_fd_wavesolver(dt, laplacian)
+        dt_max = calc_dt_max(v_max, dz, dx)
+        dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
+        wavesolver = make_fd_wavesolver(dt_mod, laplacian)
     elif tsolver == 're':
-        assert vmax
-        wavesolver = make_re_wavesolver(dz, dx, dt, vmax, laplacian)
+        assert v_max
+        wavesolver = make_re_wavesolver(dz, dx, dt, v_max, laplacian)
 
     def awm(v,
             nt,
@@ -262,6 +278,8 @@ def make_awm(shape,
             reccrds=None,
             P_old=None,
             P_cur=None):
+
+        nt_mod = nt * samp_rate
         addsources = make_addsources(srcsgns, srccrds, taper)
         record, recorded_shape = make_record(out, padded_shape, reccrds, taper)
         awm_cell = make_awm_cell(wavesolver, attenuate, addsources, record)
@@ -273,8 +291,8 @@ def make_awm(shape,
         out = tf.zeros(recorded_shape)
         carry = out, (P_old, P_cur)
         const_v_awm_cell = partial(awm_cell, v=v)
-        outs, carry = tf.scan(const_v_awm_cell, tf.range(nt), carry)
-        return outs
+        outs, carry = tf.scan(const_v_awm_cell, tf.range(nt_mod), carry)
+        return outs[::samp_rate, ...]
 
     return awm
 
@@ -368,9 +386,15 @@ if __name__ == '__main__':
         mode='r',
         dtype=float).astype(np.float32)
     shape = nz, nx = v.shape
-    nt = 1 * 300
 
-    dz, dx, dt = 100., 100., 0.0075
+    # dz, dx, dt = 100., 100., 0.0075
+    dz, dx, dt = 100., 100., 0.004
+
+    dt_max = calc_dt_max(v.max(), dz, dx)
+    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
+
+    nt = int(1 / dt)  # 1 s
+    print(nt, nt * samp_rate, dt, dt_max, dt_mod, samp_rate)
 
     # seismic source
     nu = 2
@@ -400,7 +424,7 @@ if __name__ == '__main__':
                    tsolver='fd',
                    spsolver='fd',
                    sporder=sporder,
-                   vmax=np.max(v))
+                   v_max=np.max(v))
     seis = partial(awm, nt=nt, out='seis')
 
     def seis_wo_dw(v, *args, **kwargs):

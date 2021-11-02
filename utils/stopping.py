@@ -10,6 +10,7 @@ class StopCondition:
         growing_is_good: bool = True,
         patience: int = 15,
         min_improvement: int = 0,
+        # abs_tol: float = None
         ignore_first: bool = False,
     ):
         """
@@ -22,6 +23,7 @@ class StopCondition:
         self.min_improvement: float = min_improvement
         self.growing_is_good: bool = growing_is_good
         self.ignore_next: bool = True if ignore_first else False
+        # self.abs_tol: float = abs_tol
         self.counter: int = 0
         self.norm_best_metric: float = 0.0
         self.best_metric: float = None
