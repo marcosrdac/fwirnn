@@ -26,13 +26,14 @@ def min_max_absmax(*arrs):
     else:
         return stats
 
+
 def min_max_val(*arrs):
     min_vals = []
     for arr in arrs:
         if isinstance(arr, tf.Tensor):
             arr = arr.numpy()
         min_vals.append(np.min(np.abs(arr)))
-    return np.max(max_vals)
+    return np.max(min_vals)
 
 
 def plot_velocities(v_e,
@@ -47,6 +48,7 @@ def plot_velocities(v_e,
                     xlabel='x (km)',
                     ylabel='z (km)',
                     cbar_label='v (m/s)',
+                    aspect='auto',
                     show=None,
                     dpi=300):
     fig, axes = plt.subplots(
@@ -64,12 +66,20 @@ def plot_velocities(v_e,
 
     vmin, vmax, avmax = min_max_absmax(v_e)
     axes.flat[0].set_title('$v_e$')
-    im = axes.flat[0].imshow(v_e, vmin=vmin, vmax=vmax, extent=extent)
+    im = axes.flat[0].imshow(v_e,
+                             vmin=vmin,
+                             vmax=vmax,
+                             extent=extent,
+                             aspect=aspect)
     cbar = fig.colorbar(im, ax=axes.flat[0])
     cbar.set_label(cbar_label)
 
     axes.flat[1].set_title('$v$')
-    im = axes.flat[1].imshow(v_true, vmin=vmin, vmax=vmax, extent=extent)
+    im = axes.flat[1].imshow(v_true,
+                             vmin=vmin,
+                             vmax=vmax,
+                             extent=extent,
+                             aspect=aspect)
     cbar = fig.colorbar(im, ax=axes.flat[1])
     cbar.set_label(cbar_label)
 
@@ -86,7 +96,10 @@ def plot_velocities(v_e,
     im = axes.flat[3].imshow(loss_grad,
                              extent=extent,
                              norm=mpl.colors.SymLogNorm(loss_grad_thresh,
-                                                        base=10, vmin=-avmax, vmax=avmax),
+                                                        base=10,
+                                                        vmin=-avmax,
+                                                        vmax=avmax),
+                             aspect=aspect,
                              cmap='seismic')
     cbar = fig.colorbar(im, ax=axes.flat[3])
     cbar.set_label(cbar_label)
@@ -98,6 +111,7 @@ def plot_velocities(v_e,
                              vmin=-avmax,
                              vmax=avmax,
                              cmap='seismic',
+                             aspect=aspect,
                              extent=extent)
     cbar = fig.colorbar(im, ax=axes.flat[2])
     cbar.set_label(cbar_label)
@@ -108,12 +122,13 @@ def plot_velocities(v_e,
         ax.xaxis.set_label_position('top')
         ax.xaxis.tick_top()
 
+    fig.tight_layout()
+
     if figname:
         fig.savefig(figname)
     else:
         show = True if show is None else show
 
-    fig.tight_layout()
     if show:
         plt.show()
     plt.close(fig)
@@ -189,12 +204,13 @@ def plot_seismograms(seis_i,
         ax.xaxis.set_label_position('top')
         ax.xaxis.tick_top()
 
+    fig.tight_layout()
+
     if figname:
         fig.savefig(figname)
     else:
         show = True if show is None else show
 
-    fig.tight_layout()
     if show:
         plt.show()
     plt.close(fig)
@@ -206,10 +222,19 @@ if __name__ == '__main__':
     from scipy.ndimage import gaussian_filter
 
     img_orig = np.random.rand(200, 301) - .5
-    img = gaussian_filter(img_orig, 10)
+    img_1 = gaussian_filter(img_orig, 5)
+    img_2 = gaussian_filter(img_1, 10)
+    img_3 = gaussian_filter(img_2, 15)
 
     dx = 8  # km
     dz = 2  # km
 
-    # plot_velocities(img, img_orig, img, img_orig, dz=.3, dx=.5, show=True)
-    plot_seismograms(img, img_orig, dt=0.015, dx=.3, show=True)
+    plot_velocities(img_2,
+                    img_1,
+                    img_3,
+                    img_1,
+                    dz=.3,
+                    dx=.5,
+                    show=True,
+                    title='Title')
+    # plot_seismograms(img, img_orig, dt=0.015, dx=.3, show=True)

@@ -1,5 +1,5 @@
 from os import makedirs
-from os.path import join, dirname, isfile, isdir, dirname, basename
+from os.path import join, isfile, isdir, dirname, basename
 import numpy as np
 import tensorflow as tf
 from tensorflow import math as tfm, image as tfi
@@ -220,7 +220,7 @@ def make_train_epoch(val_loss_grad_fun,
 
             # plotting data
             fig_filename = batch_info.print(sep='_') + '.png'
-            fig_title = batch_info.pprint(sep=', ')
+            fig_title = batch_info.print(sep=', ')
 
             if accum_grads:
                 loss_grad = epoch_mean_loss_grad
@@ -348,9 +348,7 @@ if __name__ == '__main__':
     srcsgn = rickerwave(nu, dt)
 
     # TODO rename nu to freq
-    print(f'nt={nt}',
-          f'dt={dt}',
-          f'nu={nu}')
+    print(f'nt={nt}', f'dt={dt}', f'nu={nu}')
     print(nt, dt, nu)
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
@@ -422,7 +420,7 @@ if __name__ == '__main__':
         'adam': {
             # 'learning_rate': (1 * 10**i for i in range(1, 2 + 1)), #2 is good
             'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
-            #'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
+            # 'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
             'beta_1': (.9, ),  # .7,
             'beta_2': (.9, ),  # .7,
         },
@@ -452,6 +450,8 @@ if __name__ == '__main__':
         for optimizer_params in make_combinations(param_space):
             optimizer = optimizer_generator(**optimizer_params)
 
+            # fwi function
+
             fwi_info = StateInfo()
             fwi_info['optimizer'] = optimizer_name
             for p, v in optimizer_params.items():
@@ -472,7 +472,7 @@ if __name__ == '__main__':
 
             for freq, srcsgn in multi_scale_sources.items():
                 # fwi_fun
-                fwi_info['freqency'] = freq
+                fwi_info['frequency'] = freq
 
                 # train_idx, test_idx
                 srcsgns = make_srcsgns(srcsgn)
@@ -518,7 +518,7 @@ if __name__ == '__main__':
             # saving histories
             histories_path = join(
                 result_dirs['metric_data'],
-                '_'.join(preffixes) + '.pkl',
+                fwi_info.print(sep='_') + '.pkl',
             )
             histories = {k: dict(v) for k, v in histories.items()}
-            dump_to_file(histories_path, histories)
+            pickle_to(histories_path, histories)
