@@ -145,17 +145,25 @@ def make_record(out='snaps', shape=None, reccrds=None, taper=0):
     return record, recorded_shape
 
 
-def make_addsources(srcsgns, srccrds, taper=0):
+def make_addsources(srcsgns, srccrds, taper=0, samp_rate=1):
     if srccrds is None:
 
         def addsources(P, t):
             return P
 
     else:
+        if samp_rate != 1:
+            srcsgns_itp = []
+            for srcsgn in srcsgns:
+                t = np.arange(len(srcsgn))
+                t_itp = np.arange(len(srcsgn) * samp_rate) / samp_rate
+                srcsgn_itp = np.interp(t_itp, t, srcsgn)
+                srcsgns_itp.append(srcsgn_itp)
+            srcsgns = srcsgns_itp
+
         padded_srccrds = padcoords(srccrds, taper, until=2)
 
         def addsource(P, t, sgn, crd):
-            # print(t, crd[-1], t-crd[-1])
             return tf.tensor_scatter_nd_add(
                 P,
                 crd[None, :2],
@@ -232,12 +240,18 @@ def make_awm_cell(
     return awm_cell
 
 
-def calc_dt_max(v_max, dz, dx, p=.95):
+def calc_dt_max(v_max, dz=1, dx=1, sp_order=2, t_order=2, p=.95):
     '''
     Maximum dt used for a model of maximum velocity v_max, given grid 
     spacings dz and dx.
     '''
-    return p*np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
+    # return p * np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
+    d_max = np.max([dz, dx])
+    stencil = central_difference_coefs(2, sp_order)
+    stencil_abs_sum = 2 * np.sum(np.abs(stencil))
+    print(stencil_abs_sum)
+    dt = 2 * d_max / (v_max * np.sqrt(stencil_abs_sum))
+    return p * dt
 
 
 def calc_dt_mod_and_samp_rate(dt, dt_max):
@@ -246,26 +260,46 @@ def calc_dt_mod_and_samp_rate(dt, dt_max):
     return dt_mod, rate
 
 
-def calc_freq_max(v_min, *dl, p=.95):
-    dl_max = np.max(dl)
-    freq_max = v_min / (10 * dl_max)
-    return p * freq_max
+def calc_freq_max(v_min, dz, dx, sp_order=2):
+    assert sp_order > 1
+    d_max = np.max([dz, dx])
+    if sp_order < 4:
+        c = 10
+    elif sp_order < 6:
+        c = 5.92
+    elif sp_order < 8:
+        c = 4.28
+    else:
+        c = 3.64
+    freq_max = v_min / (c * d_max)
+    return freq_max
 
 
-def make_awm(shape, dz, dx, dt, v_max, spsolver='fd', tsolver='fd', sporder=2):
+def make_awm(
+    shape,
+    dz,
+    dx,
+    dt,
+    v_max,
+    spsolver='fd',
+    tsolver='fd',
+    sp_order=2,
+    return_samp_rate=True,
+):
 
     attenuate, padded_shape = make_attenuate(shape)
     taper = (padded_shape[0] - shape[0]) // 2
 
     if spsolver == 'fd':
-        laplacian = make_fd_laplacian(dz, dx, sporder)
+        laplacian = make_fd_laplacian(dz, dx, sp_order)
     elif spsolver == 's':
         laplacian = make_s_laplacian(padded_shape, dz, dx)
 
     samp_rate = 1
     if tsolver == 'fd':
-        dt_max = calc_dt_max(v_max, dz, dx)
+        dt_max = calc_dt_max(v_max, dz, dx, sp_order)
         dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
+        print(dt, dt_mod, dt_max)
         wavesolver = make_fd_wavesolver(dt_mod, laplacian)
     elif tsolver == 're':
         assert v_max
@@ -281,7 +315,10 @@ def make_awm(shape, dz, dx, dt, v_max, spsolver='fd', tsolver='fd', sporder=2):
             P_cur=None):
 
         nt_mod = nt * samp_rate
-        addsources = make_addsources(srcsgns, srccrds, taper)
+        addsources = make_addsources(srcsgns,
+                                     srccrds,
+                                     taper,
+                                     samp_rate=samp_rate)
         record, recorded_shape = make_record(out, padded_shape, reccrds, taper)
         awm_cell = make_awm_cell(wavesolver, attenuate, addsources, record)
 
@@ -295,7 +332,10 @@ def make_awm(shape, dz, dx, dt, v_max, spsolver='fd', tsolver='fd', sporder=2):
         outs, carry = tf.scan(const_v_awm_cell, tf.range(nt_mod), carry)
         return outs[::samp_rate, ...]
 
-    return awm
+    if return_samp_rate:
+        return awm, samp_rate
+    else:
+        return awm
 
 
 def tf_pad_equal(A, padding):
@@ -335,7 +375,7 @@ def plot_seismograms(seis_i,
                              aspect='auto')
 
     axes.flat[1].set_title('Ground-truth')
-    #seis_t_gain = seisgain(seis_t, dt=dt, a=.8, b=0.001)
+    # seis_t_gain = seisgain(seis_t, dt=dt, a=.8, b=0.001)
     im = axes.flat[1].imshow(seis_t,
                              vmin=vmin,
                              vmax=vmax,
@@ -389,17 +429,13 @@ if __name__ == '__main__':
     shape = nz, nx = v.shape
 
     # dz, dx, dt = 100., 100., 0.0075
-    dz, dx, dt = 100., 100., 0.004
+    dz, dx, dt = 10., 10., 0.004
 
-    dt_max = calc_dt_max(v.max(), dz, dx)
-    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
-
-    nt = int(1 / dt)  # 1 s
-    print(nt, nt * samp_rate, dt, dt_max, dt_mod, samp_rate)
+    nt = int(.4 / dt)  # s
 
     # seismic source
-    nu = 2
-    signal = rickerwave(nu, dt)
+    freq = 15
+    signal = rickerwave(freq, dt)
 
     # dataset
     srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
@@ -416,21 +452,25 @@ if __name__ == '__main__':
     print('Number of shots =', len(srcsgns))
 
     # modeling parameters
-    sporder = 8
+    sp_order = 8
 
-    awm = make_awm(v.shape,
-                   dz,
-                   dx,
-                   dt,
-                   tsolver='fd',
-                   spsolver='fd',
-                   sporder=sporder,
-                   v_max=np.max(v))
+    awm, samp_rate = make_awm(v.shape,
+                              dz,
+                              dx,
+                              dt,
+                              tsolver='fd',
+                              spsolver='fd',
+                              sp_order=sp_order,
+                              v_max=np.max(v),
+                              return_samp_rate=True)
+
+    print(nt, samp_rate, nt * samp_rate)
+
     seis = partial(awm, nt=nt, out='seis')
 
     def seis_wo_dw(v, *args, **kwargs):
         v = tf.Variable(v)
-        v_s = surface_to_depth(v, sporder // 2)
+        v_s = surface_to_depth(v, sp_order // 2)
         s = seis(v, *args, **kwargs)
         dw = seis(v_s, *args, **kwargs)
         m = np.max(np.abs(s))

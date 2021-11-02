@@ -132,38 +132,43 @@ def make_val_loss_grad_fun(seis_fun, loss_fun):
 
 def make_eval_epoch(seis_fun, loss_fun, verbose=True):
     def eval_epoch(v, X, Y, idx, info=None):
-        if verbose:
-            print('Testing')
-
-        if info is None:
-            epoch_info = StateInfo()
-        else:
-            epoch_info = info.copy()
-
         mean_loss = 0
-        for shot_num, shot_idx in enumerate(idx):
-            shot_info = epoch_info.copy()
-            shot_info['shot'] = 1 + shot_num
-            shot_info['shot_idx'] = 1 + shot_idx, 'i'
+        if len(idx) > 0:
             if verbose:
-                print('- ',
-                      shot_info.print('frequency', 'epoch', 'shot',
-                                      'shot_idx'),
-                      sep='',
-                      end=' ')
-            x, y = X[shot_idx], Y[shot_idx]
-            srcsgns, srccrds, reccrds = x
-            ŷ = seis_fun(v=v,
-                         srcsgns=srcsgns,
-                         srccrds=srccrds,
-                         reccrds=reccrds)
-            loss = loss_fun(ŷ, y)
-            mean_loss += loss
-            shot_info['loss'] = loss
-            if verbose:
-                print(shot_info.print('loss'))
+                print('Testing')
 
-        mean_loss /= len(idx)
+            if info is None:
+                epoch_info = StateInfo()
+            else:
+                epoch_info = info.copy()
+
+            for shot_num, shot_idx in enumerate(idx):
+                shot_info = epoch_info.copy()
+                shot_info['shot'] = 1 + shot_num
+                shot_info['shot_idx'] = 1 + shot_idx, 'i'
+                if verbose:
+                    print('- ',
+                          shot_info.print('frequency', 'epoch', 'shot',
+                                          'shot_idx'),
+                          sep='',
+                          end=' ')
+                x, y = X[shot_idx], Y[shot_idx]
+                srcsgns, srccrds, reccrds = x
+                ŷ = seis_fun(v=v,
+                             srcsgns=srcsgns,
+                             srccrds=srccrds,
+                             reccrds=reccrds)
+                loss = loss_fun(ŷ, y)
+                mean_loss += loss
+                shot_info['loss'] = loss
+                if verbose:
+                    print(shot_info.print('loss'))
+
+            mean_loss /= len(idx)
+        else:
+            if verbose:
+                print('Testing: no test shots configured')
+
         epoch_info['mean_loss'] = mean_loss
         print('  > ',
               epoch_info.print('frequncy', 'epoch', 'mean_loss'),
@@ -343,14 +348,15 @@ if __name__ == '__main__':
     print(v_true.shape)
 
     if model_name == 'multi_layered':
-        array_desc = dict(geometry='8-6-0-6-8',
-                          rr=1,
-                          # ss=5,
-                          ss=40,
-                          ns=None,
-                          nx=nx,
-                          dx=1,
-                          all_recs=True)
+        array_desc = dict(
+            geometry='8-6-0-6-8',
+            rr=1,
+            # ss=5,
+            ss=40,
+            ns=None,
+            nx=nx,
+            dx=1,
+            all_recs=True)
         t_max = 1  # s
     elif model_name == 'marmousi':
         downscale = 2
@@ -381,31 +387,32 @@ if __name__ == '__main__':
     freq_max = calc_freq_max(v_true.min(), dz, dx)
     freq = int(freq_max)
 
-    srcsgn = rickerwave(freq, dt)
+    # modeling parameters
+    sp_order = 8
+    awm, samp_rate = make_awm(v_true.shape,
+                              dz,
+                              dx,
+                              dt,
+                              v_max=np.max(v_true),
+                              tsolver='fd',
+                              spsolver='fd',
+                              sp_order=sp_order,
+                              return_samp_rate=True)
+    dt_mod = dt / samp_rate
+
+    srcsgn = rickerwave(freq, dt)  # TODO interpolate before while...
 
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
           f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
-    #exit()
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
-
+    print(f'Number of shots: {len(srccrds)}')
+    exit()
     srcsgns = make_srcsgns(srcsgn)
 
-    print(f'Number of shots: {len(srccrds)}')
-
-    # modeling parameters
-    sporder = 8
-    awm = make_awm(v_true.shape,
-                   dz,
-                   dx,
-                   dt,
-                   v_max=np.max(v_true),
-                   tsolver='fd',
-                   spsolver='fd',
-                   sporder=sporder)
     seis_fun = partial(awm, nt=nt, out='seis')
-    seis_wo_direct_fun = make_seis_wo_direct_fun(seis_fun, sporder)
+    seis_wo_direct_fun = make_seis_wo_direct_fun(seis_fun, sp_order)
 
     # START MAKING DATASET
     X = [*zip(srcsgns, srccrds, reccrds)]
