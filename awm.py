@@ -232,12 +232,12 @@ def make_awm_cell(
     return awm_cell
 
 
-def calc_dt_max(v_max, dz, dx):
+def calc_dt_max(v_max, dz, dx, p=.95):
     '''
     Maximum dt used for a model of maximum velocity v_max, given grid 
     spacings dz and dx.
     '''
-    return np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
+    return p*np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
 
 
 def calc_dt_mod_and_samp_rate(dt, dt_max):
@@ -246,7 +246,7 @@ def calc_dt_mod_and_samp_rate(dt, dt_max):
     return dt_mod, rate
 
 
-def calc_freq_max(v_min, *dl, p=0.95):
+def calc_freq_max(v_min, *dl, p=.95):
     dl_max = np.max(dl)
     freq_max = v_min / (10 * dl_max)
     return p * freq_max

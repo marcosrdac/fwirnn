@@ -345,7 +345,8 @@ if __name__ == '__main__':
     if model_name == 'multi_layered':
         array_desc = dict(geometry='8-6-0-6-8',
                           rr=1,
-                          ss=5,
+                          # ss=5,
+                          ss=40,
                           ns=None,
                           nx=nx,
                           dx=1,
@@ -384,7 +385,7 @@ if __name__ == '__main__':
 
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
           f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
-    exit()
+    #exit()
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
