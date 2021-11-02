@@ -388,7 +388,6 @@ if __name__ == '__main__':
     srcsgns = make_srcsgns(srcsgn)
 
     print(f'Number of shots: {len(srccrds)}')
-    exit()
 
     # modeling parameters
     sporder = 8
