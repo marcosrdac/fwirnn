@@ -86,7 +86,7 @@ def make_ground_truth(seis_fun, v, X, verbose=True):
             print(f'- Seismogram #{i}')
         srcsgns, srccrds, reccrds = xi
         yi = seis_fun(v=v, srcsgns=srcsgns, srccrds=srccrds, reccrds=reccrds)
-        Y.append(yi)
+        Y.append(yi.numpy())
     if verbose:
         print()
     return Y
@@ -329,8 +329,8 @@ if __name__ == '__main__':
     from scipy.signal import convolve
     NOW = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    # model = marmousi_model
-    model = multi_layered_model
+    model = marmousi_model
+    #model = multi_layered_model
     v_true = model.load()
 
     shape = nz, nx = model.shape
@@ -380,7 +380,8 @@ if __name__ == '__main__':
     srcsgn = rickerwave(freq, dt)
 
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
-          f'dt={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
+          f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
+    #exit()
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
