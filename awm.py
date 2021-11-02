@@ -5,7 +5,7 @@ from functools import partial
 from scipy.special import jv
 from os import makedirs
 from os.path import join, dirname, isfile, isdir, dirname, basename
-from utils.discarrays import discarray, todiscarray
+from utils.saving import discarray, discarray_to
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 # mpl.use("TkAgg")
@@ -240,15 +240,16 @@ def calc_dt_max(v_max, dz, dx):
     return np.sqrt((3 / 4) / ((v_max / dx)**2 + (v_max / dz)**2))
 
 
-
 def calc_dt_mod_and_samp_rate(dt, dt_max):
     rate = int(np.ceil(dt / dt_max))
     dt_mod = dt / rate
     return dt_mod, rate
 
-def calc_freq_max(v_min, *dl):
+
+def calc_freq_max(v_min, *dl, p=0.95):
     dl_max = np.max(dl)
-    return v_min / (10 * dl_max)
+    freq_max = v_min / (10 * dl_max)
+    return p * freq_max
 
 
 def make_awm(shape, dz, dx, dt, v_max, spsolver='fd', tsolver='fd', sporder=2):

@@ -14,11 +14,12 @@ from functools import partial
 from utils.wavelets import rickerwave
 from seismicarrays import make_default_arrays, parse_geometry, make_array
 import tensorflow.keras.optimizers as optimizers
-from utils.discarrays import discarray, todiscarray
+from utils.saving import discarray, discarray_to
+from utils.saving import pickle_to, unpickle_from
+from utils.saving import yaml_to, unyaml_from
 from utils.structures import StateInfo, AccumulatingDict
 from utils.stopping import StopCondition
 from sklearn.model_selection import train_test_split
-from utils.pickleutils import pickle_to, unpickle_from
 
 
 def mse(ŷ, y=None, reduce=tf.reduce_mean):
@@ -164,7 +165,9 @@ def make_eval_epoch(seis_fun, loss_fun, verbose=True):
 
         mean_loss /= len(idx)
         epoch_info['mean_loss'] = mean_loss
-        print('  > ', epoch_info.print('frequncy', 'epoch', 'mean_loss'), sep='')
+        print('  > ',
+              epoch_info.print('frequncy', 'epoch', 'mean_loss'),
+              sep='')
         metrics = {'loss': mean_loss}
         return metrics
 
@@ -249,7 +252,7 @@ def make_train_epoch(val_loss_grad_fun,
             if result_dirs.get('v_data'):
                 v_file = batch_info.filename() + '.bin'
                 v_path = join(result_dirs['v_data'], v_file)
-                todiscarray(v_path, v_e.numpy())
+                discarray_to(v_path, v_e.numpy())
 
             # plotting data
             fig_filename = batch_info.filename() + '.png'
@@ -314,7 +317,7 @@ def make_train_epoch(val_loss_grad_fun,
             epoch_info['loss'] = epoch_mean_loss
             v_file = epoch_info.filename() + '.bin'
             v_path = join(result_dirs['v_data'], v_file)
-            todiscarray(v_path, v_e.numpy())
+            discarray_to(v_path, v_e.numpy())
 
         metrics = {'loss': epoch_mean_loss}
 
@@ -329,8 +332,8 @@ if __name__ == '__main__':
     from scipy.signal import convolve
     NOW = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    model = marmousi_model
-    #model = multi_layered_model
+    # model = marmousi_model
+    model = multi_layered_model
     v_true = model.load()
 
     shape = nz, nx = model.shape
@@ -381,7 +384,7 @@ if __name__ == '__main__':
 
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
           f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
-    #exit()
+    exit()
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
@@ -399,8 +402,7 @@ if __name__ == '__main__':
                    v_max=np.max(v_true),
                    tsolver='fd',
                    spsolver='fd',
-                   sporder=sporder
-                   )
+                   sporder=sporder)
     seis_fun = partial(awm, nt=nt, out='seis')
     seis_wo_direct_fun = make_seis_wo_direct_fun(seis_fun, sporder)
 
@@ -437,6 +439,8 @@ if __name__ == '__main__':
     idx = np.arange(len(X))
     idx_test = np.random.choice(idx, size=int(test_split * len(X)))
     idx_train = np.delete(idx, idx_test)
+    idx_path = join(result_dirs['root'], 'validation_setup.yaml')
+    yaml_to(idx_path, {'idx_train': idx_train, 'idx_test': idx_test})
 
     # initial model for fwi
     maintain_before_depth = sporder // 2
@@ -499,7 +503,7 @@ if __name__ == '__main__':
 
             v_filename = fwi_info.filename() + '.bin'
             v_path = join(result_dirs['v_data'], v_filename)
-            todiscarray(v_path, v_e.numpy())
+            discarray_to(v_path, v_e.numpy())
 
             for freq, srcsgn in multi_scale_sources.items():
                 # fwi_fun

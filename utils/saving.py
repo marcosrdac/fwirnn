@@ -1,4 +1,6 @@
 import numpy as np
+import pickle
+import yaml
 
 
 def discarray(filename, mode='r', dtype=float, shape=None, order='C'):
@@ -22,10 +24,47 @@ def discarray(filename, mode='r', dtype=float, shape=None, order='C'):
     return arr
 
 
-def todiscarray(filename, arr, order='C'):
+def discarray_to(filename, arr, order='C'):
     disk_arr = discarray(filename,
                          'w+',
                          dtype=arr.dtype,
                          shape=arr.shape,
                          order=order)
     disk_arr[...] = arr[...]
+
+
+def pickle_to(path, data):
+    with open(path, 'wb') as f:
+        pickle.dump(data, f)
+
+
+def unpickle_from(path):
+    with open(path, 'rb') as f:
+        return pickle.load(f)
+
+
+def yaml_to(path, data):
+    with open(path, 'w') as f:
+        f.write(yaml.dump(data))
+
+
+def unyaml_from(path):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+yaml.safe_load(yaml.dump({'a': 3}))
+
+if __name__ == '__main__':
+    from os import remove
+
+    filepath = '/tmp/myfile.pkl'
+    var = 'A string object.'
+
+    pickle_to(filepath, var)
+    print(unpickle_from(filepath))
+
+    yaml_to(filepath, var)
+    print(unyaml_from(filepath))
+
+    remove(filepath)

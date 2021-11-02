@@ -2,7 +2,7 @@
 
 from os.path import join
 from typing import Sequence, Callable
-from utils.discarrays import discarray
+from utils.saving import discarray
 from os.path import join, expanduser, isdir
 import numpy as np
 import matplotlib as mpl
@@ -94,6 +94,7 @@ multi_layered_model = VelocityModel(name='multi_layered',
 # WARNING: do not mess here unless you know what you are doing
 # - Result directories' generator
 DIR_CONFIG['result_dirs'] = lambda *d: {  # i.e. model_name, train_id
+    'root': join(DIR_CONFIG['result'], *d),
     'v_data': join(DIR_CONFIG['result'], *d, 'data_v'),
     'v_plot': join(DIR_CONFIG['result'], *d, 'plot_v'),
     'seis_data': join(DIR_CONFIG['result'], *d, 'data_seis'),
@@ -101,6 +102,7 @@ DIR_CONFIG['result_dirs'] = lambda *d: {  # i.e. model_name, train_id
     'metric_data': join(DIR_CONFIG['result'], *d, 'data_metric'),
     'metric_plot': join(DIR_CONFIG['result'], *d, 'plot_metric'),
     'dataset': join(DIR_CONFIG['result'], *d, 'dataset'),
+    'validation_setup': join(DIR_CONFIG['result'], *d, 'validation'),
 }
 
 if __name__ == '__main__':
