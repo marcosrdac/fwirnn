@@ -97,10 +97,10 @@ def make_combinations(d: Dict[Any, Sequence]):
     return (dict(zip(d.keys(), c)) for c in itertools.product(*d.values()))
 
 
-def make_seis_wo_direct_fun(seis, sporder):
+def make_seis_wo_direct_fun(seis, sp_order):
     def seis_wo_direct_fun(v, *args, **kwargs):
-        #v_s = surface_to_depth(v, sporder // 2)
-        v_s = surface_to_depth(v, sporder)
+        #v_s = surface_to_depth(v, sp_order // 2)
+        v_s = surface_to_depth(v, sp_order)
         s = seis(v, *args, **kwargs)
         dw = seis(v_s, *args, **kwargs)
         return s - dw
@@ -132,15 +132,15 @@ def make_val_loss_grad_fun(seis_fun, loss_fun):
 
 def make_eval_epoch(seis_fun, loss_fun, verbose=True):
     def eval_epoch(v, X, Y, idx, info=None):
+        if info is None:
+            epoch_info = StateInfo()
+        else:
+            epoch_info = info.copy()
+
         mean_loss = 0
         if len(idx) > 0:
             if verbose:
                 print('Testing')
-
-            if info is None:
-                epoch_info = StateInfo()
-            else:
-                epoch_info = info.copy()
 
             for shot_num, shot_idx in enumerate(idx):
                 shot_info = epoch_info.copy()
@@ -351,13 +351,13 @@ if __name__ == '__main__':
         array_desc = dict(
             geometry='8-6-0-6-8',
             rr=1,
-            # ss=5,
-            ss=40,
+            ss=5,
+            # ss=40,
             ns=None,
             nx=nx,
             dx=1,
             all_recs=True)
-        t_max = 1  # s
+        t_max = .7  # s
     elif model_name == 'marmousi':
         downscale = 2
         v_true = v_true[::downscale, ::downscale]
@@ -407,7 +407,7 @@ if __name__ == '__main__':
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
     print(f'Number of shots: {len(srccrds)}')
-    exit()
+    #exit()
     srcsgns = make_srcsgns(srcsgn)
 
     seis_fun = partial(awm, nt=nt, out='seis')
@@ -424,6 +424,7 @@ if __name__ == '__main__':
 
     test_split = 1 / 5
     freqs = 5, 10, 15
+    # freqs = 2, 7, 14
     multi_scale_sources = {freq: rickerwave(freq, dt) for freq in freqs}
 
     # making directories
@@ -447,10 +448,10 @@ if __name__ == '__main__':
     idx_test = np.random.choice(idx, size=int(test_split * len(X)))
     idx_train = np.delete(idx, idx_test)
     idx_path = join(result_dirs['root'], 'validation_setup.yaml')
-    yaml_to(idx_path, {'idx_train': idx_train, 'idx_test': idx_test})
+    yaml_to(idx_path, {'idx_train': [*idx_train], 'idx_test': [*idx_test]})
 
     # initial model for fwi
-    maintain_before_depth = sporder // 2
+    maintain_before_depth = sp_order // 2
     # maintain_before_depth = 0
     v_0 = depth_lowpass(v_true, ws=30, min_depth=maintain_before_depth)
 
@@ -532,8 +533,8 @@ if __name__ == '__main__':
                     optimizer, v_e, train_metrics, diverged = train_epoch(
                         optimizer=optimizer,
                         v_e=v_e,
-                        X=X,
-                        Y=Y,
+                        X=X_freq,
+                        Y=Y_freq,
                         idx_train=idx_train,
                         v_0=v_0,
                         v_true=v_true,
@@ -541,7 +542,7 @@ if __name__ == '__main__':
                         info=fwi_info,
                         show=show)
 
-                    test_metrics = eval_epoch(v_e, X, Y, idx_test)
+                    test_metrics = eval_epoch(v_e, X_freq, Y_freq, idx_test)
 
                     mean_abs_delta_v_e = np.mean(np.abs(v_e.numpy() - v_old))
 
