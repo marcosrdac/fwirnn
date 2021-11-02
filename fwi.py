@@ -386,6 +386,7 @@ if __name__ == '__main__':
     # seismic source
     freq_max = calc_freq_max(v_true.min(), dz, dx)
     freq = int(freq_max)
+    srcsgn = rickerwave(freq, dt)  # TODO interpolate before while...
 
     # modeling parameters
     sp_order = 8
@@ -399,8 +400,6 @@ if __name__ == '__main__':
                               sp_order=sp_order,
                               return_samp_rate=True)
     dt_mod = dt / samp_rate
-
-    srcsgn = rickerwave(freq, dt)  # TODO interpolate before while...
 
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
           f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
