@@ -164,7 +164,7 @@ def make_eval_epoch(seis_fun, loss_fun, verbose=True):
 
         mean_loss /= len(idx)
         epoch_info['mean_loss'] = mean_loss
-        print('> ', epoch_info.print('frequncy', 'epoch', 'mean_loss'), sep='')
+        print('  > ', epoch_info.print('frequncy', 'epoch', 'mean_loss'), sep='')
         metrics = {'loss': mean_loss}
         return metrics
 
@@ -336,11 +336,8 @@ if __name__ == '__main__':
     shape = nz, nx = model.shape
     delta = dz, dx = model.delta
     model_name = model.name
-    print(v_true.shape)
-
     dt = 0.004
-    dt_max = calc_dt_max(np.max(v_true), dz, dx)
-    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
+    print(v_true.shape)
 
     if model_name == 'multi_layered':
         array_desc = dict(geometry='8-6-0-6-8',
@@ -350,8 +347,7 @@ if __name__ == '__main__':
                           nx=nx,
                           dx=1,
                           all_recs=True)
-        # 3 multi_layered_model
-        nt = int(1 / dt)
+        t_max = 1  # s
     elif model_name == 'marmousi':
         downscale = 2
         v_true = v_true[::downscale, ::downscale]
@@ -370,8 +366,12 @@ if __name__ == '__main__':
             ns=None,
             all_recs=True)
 
-        # marmousi_model
-        nt = int(4 / dt)
+        t_max = 4  # s
+
+    nt = int(t_max / dt)
+
+    dt_max = calc_dt_max(np.max(v_true), dz, dx)
+    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
 
     # seismic source
     freq_max = calc_freq_max(v_true.min(), dz, dx)
@@ -395,10 +395,11 @@ if __name__ == '__main__':
                    dz,
                    dx,
                    dt,
+                   v_max=np.max(v_true),
                    tsolver='fd',
                    spsolver='fd',
-                   sporder=sporder,
-                   vmax=np.max(v_true))
+                   sporder=sporder
+                   )
     seis_fun = partial(awm, nt=nt, out='seis')
     seis_wo_direct_fun = make_seis_wo_direct_fun(seis_fun, sporder)
 
@@ -517,7 +518,6 @@ if __name__ == '__main__':
                     v_old = v_e.numpy()
 
                     optimizer, v_e, train_metrics, diverged = train_epoch(
-                        epoch=epoch,
                         optimizer=optimizer,
                         v_e=v_e,
                         X=X,
