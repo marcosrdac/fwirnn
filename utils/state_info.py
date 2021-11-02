@@ -42,7 +42,7 @@ class StateInfo:
     def get(self, name, val=None):
         try:
             return self[name]
-        else KeyError:
+        except KeyError:
             return val
 
 

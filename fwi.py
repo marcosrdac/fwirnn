@@ -95,7 +95,8 @@ def make_combinations(d: Dict[Any, Sequence]):
 
 def make_seis_wo_direct_fun(seis, sporder):
     def seis_wo_direct_fun(v, *args, **kwargs):
-        v_s = surface_to_depth(v, sporder // 2)
+        #v_s = surface_to_depth(v, sporder // 2)
+        v_s = surface_to_depth(v, sporder)
         s = seis(v, *args, **kwargs)
         dw = seis(v_s, *args, **kwargs)
         return s - dw
@@ -314,18 +315,18 @@ if __name__ == '__main__':
                           dx=1,
                           all_recs=True)
     elif model_name == 'marmousi':
-        downscale = 4
+        downscale = 2
         v_true = v_true[::downscale, ::downscale]
         shape = nz, nx = v_true.shape
         dz, dx = downscale * dz, downscale * dx
 
         array_desc = dict(
             # geometry=f'{20*dx}-{1*dx}-0-{1*dx}-{20*dx}',
-            geometry=f'{0*dx}-{1*dx}-0-{1*dx}-{0*dx}',
+            geometry=f'{0*dx}-{3*dx}-0-{3*dx}-{0*dx}',
             rr=dx,
             # ss=(nx // 20) * dx,
             # ss=(nx // 20) * dx,
-            ss=5 * dx,
+            ss=6 * dx,
             dx=dx,
             nx=nx,
             ns=None,
@@ -346,6 +347,10 @@ if __name__ == '__main__':
     nu = int(nu_max)
     srcsgn = rickerwave(nu, dt)
 
+    # TODO rename nu to freq
+    print(f'nt={nt}',
+          f'dt={dt}',
+          f'nu={nu}')
     print(nt, dt, nu)
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
@@ -379,7 +384,7 @@ if __name__ == '__main__':
     # END MAKING DATASET
 
     test_split = 1 / 5
-    freqs = 5, 10, 15, 17
+    freqs = 5, 10, 15
     multi_scale_sources = {freq: rickerwave(freq, dt) for freq in freqs}
 
     # making directories
@@ -416,8 +421,8 @@ if __name__ == '__main__':
     optimizer_param_spaces = {
         'adam': {
             # 'learning_rate': (1 * 10**i for i in range(1, 2 + 1)), #2 is good
-            # 'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
-            'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
+            'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
+            #'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
             'beta_1': (.9, ),  # .7,
             'beta_2': (.9, ),  # .7,
         },
@@ -450,7 +455,6 @@ if __name__ == '__main__':
             fwi_info = StateInfo()
             fwi_info['optimizer'] = optimizer_name
             for p, v in optimizer_params.items():
-                print(p)
                 fwi_info[p] = v, p
             fwi_info['frequency'] = 0
 
