@@ -102,7 +102,6 @@ DIR_CONFIG['result_dirs'] = lambda *d: {  # i.e. model_name, train_id
     'metric_data': join(DIR_CONFIG['result'], *d, 'data_metric'),
     'metric_plot': join(DIR_CONFIG['result'], *d, 'plot_metric'),
     'dataset': join(DIR_CONFIG['result'], *d, 'dataset'),
-    'validation_setup': join(DIR_CONFIG['result'], *d, 'validation'),
 }
 
 if __name__ == '__main__':

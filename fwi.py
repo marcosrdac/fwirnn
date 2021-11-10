@@ -8,7 +8,7 @@ import matplotlib as mpl
 from typing import Any, Sequence, Dict, Callable
 import itertools
 from utils.filters import depth_lowpass, zero_shallow, clip, seis_gain, surface_to_depth
-from awm import make_awm, calc_dt_max, calc_dt_mod_and_samp_rate, calc_freq_max
+from awm import make_awm, calc_dt_min, calc_dt_mod_and_samp_rate, calc_freq_max
 from utils.plotutils import plot_seismograms, plot_velocities
 from functools import partial
 from utils.wavelets import rickerwave
@@ -87,6 +87,9 @@ def make_ground_truth(seis_fun, v, X, verbose=True):
             print(f'- Seismogram #{i}')
         srcsgns, srccrds, reccrds = xi
         yi = seis_fun(v=v, srcsgns=srcsgns, srccrds=srccrds, reccrds=reccrds)
+        if not np.all(np.isfinite(yi)):
+            print('NaNs encountered. Breaking.')
+            break
         Y.append(yi.numpy())
     if verbose:
         print()
@@ -337,8 +340,8 @@ if __name__ == '__main__':
     from scipy.signal import convolve
     NOW = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    # model = marmousi_model
-    model = multi_layered_model
+    model = marmousi_model
+    #model = multi_layered_model
     v_true = model.load()
 
     shape = nz, nx = model.shape
@@ -351,7 +354,8 @@ if __name__ == '__main__':
         array_desc = dict(
             geometry='8-6-0-6-8',
             rr=1,
-            ss=5,
+            # ss=5,
+            ss=3,
             # ss=40,
             ns=None,
             nx=nx,
@@ -359,6 +363,7 @@ if __name__ == '__main__':
             all_recs=True)
         t_max = .7  # s
     elif model_name == 'marmousi':
+        # downscale = 4
         downscale = 2
         v_true = v_true[::downscale, ::downscale]
         shape = nz, nx = v_true.shape
@@ -370,6 +375,8 @@ if __name__ == '__main__':
             rr=dx,
             # ss=(nx // 20) * dx,
             # ss=(nx // 20) * dx,
+            # ss=12 * dx,
+            # ss=3 * dx,
             ss=6 * dx,
             dx=dx,
             nx=nx,
@@ -380,16 +387,12 @@ if __name__ == '__main__':
 
     nt = int(t_max / dt)
 
-    dt_max = calc_dt_max(np.max(v_true), dz, dx)
-    dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
-
-    # seismic source
-    freq_max = calc_freq_max(v_true.min(), dz, dx)
+    # modeling parameters
+    #   seismic source
+    sp_order = 8
+    freq_max = calc_freq_max(v_true.min(), dz, dx, sp_order=8)
     freq = int(freq_max)
     srcsgn = rickerwave(freq, dt)  # TODO interpolate before while...
-
-    # modeling parameters
-    sp_order = 8
     awm, samp_rate = make_awm(v_true.shape,
                               dz,
                               dx,
@@ -399,15 +402,16 @@ if __name__ == '__main__':
                               spsolver='fd',
                               sp_order=sp_order,
                               return_samp_rate=True)
-    dt_mod = dt / samp_rate
 
+    dt_min = calc_dt_min(np.max(v_true), dz, dx, sp_order=sp_order)
+    dt_mod = dt / samp_rate
     print(f'nt={nt}', f'nt_mod={samp_rate*nt}', f'dt={dt}', f'dt_mod={dt_mod}',
-          f'dt_max={dt_max}', f'freq={freq}', f'freq_max={freq_max}')
+          f'dt_min={dt_min}', f'freq={freq}', f'freq_max={freq_max}')
 
     make_srcsgns, srccrds, reccrds, true_srccrds, true_reccrds = make_array(
         **array_desc, )
     print(f'Number of shots: {len(srccrds)}')
-    #exit()
+    print(dz, dx)
     srcsgns = make_srcsgns(srcsgn)
 
     seis_fun = partial(awm, nt=nt, out='seis')
@@ -422,9 +426,10 @@ if __name__ == '__main__':
         pickle_to(DIR_CONFIG['Y_old'], Y)
     # END MAKING DATASET
 
-    test_split = 1 / 5
-    freqs = 5, 10, 15
+    test_split = 1 / 4
+    # freqs = 7, 12, 15
     # freqs = 2, 7, 14
+    freqs = freq/3, 2*freq/3, freq
     multi_scale_sources = {freq: rickerwave(freq, dt) for freq in freqs}
 
     # making directories
@@ -448,7 +453,8 @@ if __name__ == '__main__':
     idx_test = np.random.choice(idx, size=int(test_split * len(X)))
     idx_train = np.delete(idx, idx_test)
     idx_path = join(result_dirs['root'], 'validation_setup.yaml')
-    yaml_to(idx_path, {'idx_train': [*idx_train], 'idx_test': [*idx_test]})
+    yaml_to(idx_path, {'idx_train': [int(i) for i in idx_train],
+                       'idx_test': [int(i) for i in idx_test]})
 
     # initial model for fwi
     maintain_before_depth = sp_order // 2
@@ -461,30 +467,28 @@ if __name__ == '__main__':
     zero_before_depth = maintain_before_depth
     max_epochs = 30
     optimizer_param_spaces = {
+        'momentum': {
+            'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
+            'momentum': (0.5, 0.9,),  # .7,
+        },
         'adam': {
-            # 'learning_rate': (1 * 10**i for i in range(1, 2 + 1)), #2 is good
-            'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
+            # 'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
+            'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
             # 'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
-            'beta_1': (.9, ),  # .7,
-            'beta_2': (.9, ),  # .7,
+            'beta_1': (0.5, 0.7, 0.9,),  # .7,
+            'beta_2': (0.7, .9, 0.999 ),  # .7,
         },
         'sgd': {
-            'learning_rate': (1 * 10**i for i in range(8, 9 + 1)),
+            'learning_rate': (1 * 10**i for i in range(5, 8 + 1)),
         },
-        # 'adam': {
-        # 'learning_rate': (1 * 10**i for i in range(1, 4 + 1)),
-        # 'beta_1': (.5, .7, .9),
-        # 'beta_2': (.7, .9, .999),
-        # },
-        # 'sgd': {
-        # 'learning_rate': (1 * 10**i for i in range(6, 9 + 1)),
-        # },
     }
 
     for optimizer_name, param_space in optimizer_param_spaces.items():
 
         if optimizer_name == 'adam':
             optimizer_generator = optimizers.Adam
+        elif optimizer_name == 'momentum':
+            optimizer_generator = tf.compat.v1.train.MomentumOptimizer
         elif optimizer_name == 'sgd':
             optimizer_generator = optimizers.SGD
         else:

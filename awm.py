@@ -240,7 +240,7 @@ def make_awm_cell(
     return awm_cell
 
 
-def calc_dt_max(v_max, dz=1, dx=1, sp_order=2, t_order=2, p=.95):
+def calc_dt_min(v_max, dz=1, dx=1, sp_order=2, t_order=2, p=1.1):
     '''
     Maximum dt used for a model of maximum velocity v_max, given grid 
     spacings dz and dx.
@@ -249,13 +249,12 @@ def calc_dt_max(v_max, dz=1, dx=1, sp_order=2, t_order=2, p=.95):
     d_max = np.max([dz, dx])
     stencil = central_difference_coefs(2, sp_order)
     stencil_abs_sum = 2 * np.sum(np.abs(stencil))
-    print(stencil_abs_sum)
     dt = 2 * d_max / (v_max * np.sqrt(stencil_abs_sum))
     return p * dt
 
 
-def calc_dt_mod_and_samp_rate(dt, dt_max):
-    rate = int(np.ceil(dt / dt_max))
+def calc_dt_mod_and_samp_rate(dt, dt_min):
+    rate = int(np.ceil(dt_min / dt))
     dt_mod = dt / rate
     return dt_mod, rate
 
@@ -297,9 +296,8 @@ def make_awm(
 
     samp_rate = 1
     if tsolver == 'fd':
-        dt_max = calc_dt_max(v_max, dz, dx, sp_order)
-        dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_max)
-        print(dt, dt_mod, dt_max)
+        dt_min = calc_dt_min(v_max, dz, dx, sp_order)
+        dt_mod, samp_rate = calc_dt_mod_and_samp_rate(dt, dt_min)
         wavesolver = make_fd_wavesolver(dt_mod, laplacian)
     elif tsolver == 're':
         assert v_max
