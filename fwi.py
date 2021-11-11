@@ -203,7 +203,6 @@ def make_train_epoch(val_loss_grad_fun,
 
         if verbose:
             print('Training')
-        diverged = False
 
         idx_train = np.arange(len(X)) if idx_train is None else idx_train
         n_samples = len(idx_train)
@@ -304,8 +303,8 @@ def make_train_epoch(val_loss_grad_fun,
                     figname=fig_path,
                     show=show)
 
-            if not np.isfinite(batch_mean_loss):
-                diverged = True
+            diverged = not np.isfinite(batch_mean_loss)
+            if diverged:
                 break
 
             # apply gradients
@@ -315,9 +314,6 @@ def make_train_epoch(val_loss_grad_fun,
 
         if accum_grads:
             optimizer.apply_gradients([(epoch_mean_loss_grad, v_e)])
-
-        if not np.all(np.isfinite(v_e)):
-            diverged = True
 
         # save model variables
         if result_dirs.get('v_data'):
@@ -329,7 +325,7 @@ def make_train_epoch(val_loss_grad_fun,
 
         metrics = {'loss': epoch_mean_loss}
 
-        return optimizer, v_e, metrics, diverged
+        return optimizer, v_e, metrics
 
     return train_epoch
 
@@ -457,7 +453,8 @@ if __name__ == '__main__':
                        'idx_test': [int(i) for i in idx_test]})
 
     # initial model for fwi
-    maintain_before_depth = sp_order // 2
+    # maintain_before_depth = sp_order // 2
+    maintain_before_depth = sp_order
     # maintain_before_depth = 0
     v_0 = depth_lowpass(v_true, ws=30, min_depth=maintain_before_depth)
 
@@ -466,29 +463,34 @@ if __name__ == '__main__':
     accum_grads = False
     zero_before_depth = maintain_before_depth
     max_epochs = 30
+
     optimizer_param_spaces = {
-        'momentum': {
-            'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
-            'momentum': (0.5, 0.9,),  # .7,
-        },
-        'adam': {
-            # 'learning_rate': (1 * 10**i for i in range(1, 1 + 1)),
-            'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
-            # 'learning_rate': (1 * 10**i for i in range(2, 2 + 1)),
-            'beta_1': (0.5, 0.7, 0.9,),  # .7,
-            'beta_2': (0.7, .9, 0.999 ),  # .7,
-        },
+        #'adam': {
+        #    # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
+        #    # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
+        #    # 'beta_2': (0.7, .9, 0.999 ),  # .7,
+        #    # 'learning_rate': (1 * 10**i for i in range(0, 1))[::-1],
+        #    'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
+        #    'beta_1': [0.9][::-1],  # .7,
+        #    'beta_2': [0.999][::-1],  # .7,
+        #},
+
         'sgd': {
-            'learning_rate': (1 * 10**i for i in range(5, 8 + 1)),
+          'learning_rate': [1 * 10**i for i in range(5, 8 + 1)][::-1],
         },
+
+        # 'momentum': {
+            # 'learning_rate': (1 * 10**i for i in range(5, 8 + 1)),
+            # 'momentum': (0.5, 0.9,),  # .7,
+        # },
     }
 
     for optimizer_name, param_space in optimizer_param_spaces.items():
 
         if optimizer_name == 'adam':
             optimizer_generator = optimizers.Adam
-        elif optimizer_name == 'momentum':
-            optimizer_generator = tf.compat.v1.train.MomentumOptimizer
+        elif optimizer_name == 'momentum':  # = SGD in tf2
+            optimizer_generator = optimizers.SGD
         elif optimizer_name == 'sgd':
             optimizer_generator = optimizers.SGD
         else:
@@ -496,7 +498,6 @@ if __name__ == '__main__':
             continue
 
         for optimizer_params in make_combinations(param_space):
-            optimizer = optimizer_generator(**optimizer_params)
 
             # fwi function
             fwi_info = StateInfo()
@@ -518,6 +519,8 @@ if __name__ == '__main__':
             discarray_to(v_path, v_e.numpy())
 
             for freq, srcsgn in multi_scale_sources.items():
+                optimizer = optimizer_generator(**optimizer_params)
+
                 # fwi_fun
                 fwi_info['frequency'] = freq
 
@@ -534,7 +537,8 @@ if __name__ == '__main__':
 
                     v_old = v_e.numpy()
 
-                    optimizer, v_e, train_metrics, diverged = train_epoch(
+                    # divergence should be availed in the loop
+                    optimizer, v_e, train_metrics = train_epoch(
                         optimizer=optimizer,
                         v_e=v_e,
                         X=X_freq,
@@ -561,10 +565,12 @@ if __name__ == '__main__':
                         histories['param'] += {'rmse': v_rmse}
 
                     test_stop_cond.update(test_metrics['loss'], v_e.numpy())
+                    diverged = not np.all(np.isfinite(v_e))
                     if test_stop_cond.stop or diverged:
                         v_e = tf.Variable(test_stop_cond.best_checkpoint)
                         break
 
+                diverged = not np.all(np.isfinite(v_e))
                 if diverged:
                     break
 
