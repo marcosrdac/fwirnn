@@ -151,7 +151,7 @@ def make_eval_epoch(seis_fun, loss_fun, verbose=True):
                 shot_info['shot_idx'] = 1 + shot_idx, 'i'
                 if verbose:
                     print('- ',
-                          shot_info.print('frequency', 'epoch', 'shot',
+                          shot_info.print('optimizer', 'frequency', 'epoch', 'shot',
                                           'shot_idx'),
                           sep='',
                           end=' ')
@@ -229,7 +229,7 @@ def make_train_epoch(val_loss_grad_fun,
                 shot_info['shot_idx'] = 1 + shot_idx, 'i'
                 if verbose:
                     print('- ',
-                          shot_info.print('frequency', 'epoch', 'batch',
+                          shot_info.print('optimizer', 'frequency', 'epoch', 'batch',
                                           'shot', 'shot_idx'),
                           sep='',
                           end=' ')
@@ -367,7 +367,7 @@ if __name__ == '__main__':
 
         array_desc = dict(
             # geometry=f'{20*dx}-{1*dx}-0-{1*dx}-{20*dx}',
-            geometry=f'{0*dx}-{3*dx}-0-{3*dx}-{0*dx}',
+            geometry=f'{0*dx}-{10*dx}-0-{10*dx}-{0*dx}',
             rr=dx,
             # ss=(nx // 20) * dx,
             # ss=(nx // 20) * dx,
@@ -422,7 +422,7 @@ if __name__ == '__main__':
         pickle_to(DIR_CONFIG['Y_old'], Y)
     # END MAKING DATASET
 
-    test_split = 1 / 4
+    test_split = 1 / 3  # 1/4
     # freqs = 7, 12, 15
     # freqs = 2, 7, 14
     freqs = freq/3, 2*freq/3, freq
@@ -446,7 +446,7 @@ if __name__ == '__main__':
 
     # hold-out validation
     idx = np.arange(len(X))
-    idx_test = np.random.choice(idx, size=int(test_split * len(X)))
+    idx_test = np.random.choice(idx, size=int(test_split * len(X)), replace=False)
     idx_train = np.delete(idx, idx_test)
     idx_path = join(result_dirs['root'], 'validation_setup.yaml')
     yaml_to(idx_path, {'idx_train': [int(i) for i in idx_train],
@@ -465,23 +465,23 @@ if __name__ == '__main__':
     max_epochs = 30
 
     optimizer_param_spaces = {
-        #'adam': {
-        #    # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
-        #    # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
-        #    # 'beta_2': (0.7, .9, 0.999 ),  # .7,
-        #    # 'learning_rate': (1 * 10**i for i in range(0, 1))[::-1],
-        #    'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
-        #    'beta_1': [0.9][::-1],  # .7,
-        #    'beta_2': [0.999][::-1],  # .7,
-        #},
-
-        'sgd': {
-          'learning_rate': [1 * 10**i for i in range(5, 8 + 1)][::-1],
+        'adam': {
+            # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
+            # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
+            # 'beta_2': (0.7, .9, 0.999 ),  # .7,
+            # 'learning_rate': (1 * 10**i for i in range(0, 1))[::-1],
+            'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
+            'beta_1': [0.9][::-1],  # .7,
+            'beta_2': [0.999][::-1],  # .7,
         },
 
+        #'sgd': {
+        #  'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
+        #},
+
         # 'momentum': {
-            # 'learning_rate': (1 * 10**i for i in range(5, 8 + 1)),
-            # 'momentum': (0.5, 0.9,),  # .7,
+        #   'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
+        #   'momentum': (0.5, 0.9,),  # .7,
         # },
     }
 
