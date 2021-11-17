@@ -465,24 +465,24 @@ if __name__ == '__main__':
     max_epochs = 30
 
     optimizer_param_spaces = {
-        'adam': {
-            # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
-            # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
-            # 'beta_2': (0.7, .9, 0.999 ),  # .7,
-            # 'learning_rate': (1 * 10**i for i in range(0, 1))[::-1],
-            'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
-            'beta_1': [0.9][::-1],  # .7,
-            'beta_2': [0.999][::-1],  # .7,
-        },
+        #'adam': {
+        #    # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
+        #    # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
+        #    # 'beta_2': (0.7, .9, 0.999 ),  # .7,
+        #    # 'learning_rate': (1 * 10**i for i in range(0, 1))[::-1],
+        #    'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
+        #    'beta_1': [0.9][::-1],  # .7,
+        #    'beta_2': [0.999][::-1],  # .7,
+        #},
 
         #'sgd': {
         #  'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
         #},
 
-        # 'momentum': {
-        #   'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
-        #   'momentum': (0.5, 0.9,),  # .7,
-        # },
+        'momentum': {
+          'learning_rate': [1 * 10**i for i in range(0, 1 + 1)][::-1],
+          'momentum': [0.9][::-1],  # .7,
+        },
     }
 
     for optimizer_name, param_space in optimizer_param_spaces.items():
