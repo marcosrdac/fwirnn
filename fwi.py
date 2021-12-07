@@ -484,8 +484,8 @@ if __name__ == '__main__':
         #  'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
         # },
         'momentum': {
-            'learning_rate': [1 * 10**i for i in range(0, 1 + 1)][::-1],
-            'momentum': [0.9][::-1],  # .7,
+          'learning_rate': [1 * 10**i for i in range(5, 6 + 1)][::-1],
+          'momentum': [0.9][::-1],  # .7,
         },
     }
 
