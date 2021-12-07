@@ -151,8 +151,8 @@ def make_eval_epoch(seis_fun, loss_fun, verbose=True):
                 shot_info['shot_idx'] = 1 + shot_idx, 'i'
                 if verbose:
                     print('- ',
-                          shot_info.print('optimizer', 'frequency', 'epoch', 'shot',
-                                          'shot_idx'),
+                          shot_info.print('optimizer', 'frequency', 'epoch',
+                                          'shot', 'shot_idx'),
                           sep='',
                           end=' ')
                 x, y = X[shot_idx], Y[shot_idx]
@@ -229,8 +229,8 @@ def make_train_epoch(val_loss_grad_fun,
                 shot_info['shot_idx'] = 1 + shot_idx, 'i'
                 if verbose:
                     print('- ',
-                          shot_info.print('optimizer', 'frequency', 'epoch', 'batch',
-                                          'shot', 'shot_idx'),
+                          shot_info.print('optimizer', 'frequency', 'epoch',
+                                          'batch', 'shot', 'shot_idx'),
                           sep='',
                           end=' ')
                 x, y = X[shot_idx], Y[shot_idx]
@@ -425,7 +425,7 @@ if __name__ == '__main__':
     test_split = 1 / 3  # 1/4
     # freqs = 7, 12, 15
     # freqs = 2, 7, 14
-    freqs = freq/3, 2*freq/3, freq
+    freqs = freq / 3, 2 * freq / 3, freq
     multi_scale_sources = {freq: rickerwave(freq, dt) for freq in freqs}
 
     # making directories
@@ -446,11 +446,16 @@ if __name__ == '__main__':
 
     # hold-out validation
     idx = np.arange(len(X))
-    idx_test = np.random.choice(idx, size=int(test_split * len(X)), replace=False)
+    idx_test = np.random.choice(idx,
+                                size=int(test_split * len(X)),
+                                replace=False)
     idx_train = np.delete(idx, idx_test)
     idx_path = join(result_dirs['root'], 'validation_setup.yaml')
-    yaml_to(idx_path, {'idx_train': [int(i) for i in idx_train],
-                       'idx_test': [int(i) for i in idx_test]})
+    yaml_to(
+        idx_path, {
+            'idx_train': [int(i) for i in idx_train],
+            'idx_test': [int(i) for i in idx_test]
+        })
 
     # initial model for fwi
     # maintain_before_depth = sp_order // 2
@@ -465,7 +470,7 @@ if __name__ == '__main__':
     max_epochs = 30
 
     optimizer_param_spaces = {
-        #'adam': {
+        # 'adam': {
         #    # 'learning_rate': (1 * 10**i for i in range(0, 2 + 1)),
         #    # 'beta_1': (0.5, 0.7, 0.9,),  # .7,
         #    # 'beta_2': (0.7, .9, 0.999 ),  # .7,
@@ -473,15 +478,14 @@ if __name__ == '__main__':
         #    'learning_rate': [1 * 10**i for i in range(0, 2+1)][::-1],
         #    'beta_1': [0.9][::-1],  # .7,
         #    'beta_2': [0.999][::-1],  # .7,
-        #},
+        # },
 
-        #'sgd': {
+        # 'sgd': {
         #  'learning_rate': [1 * 10**i for i in range(5, 7 + 1)][::-1],
-        #},
-
+        # },
         'momentum': {
-          'learning_rate': [1 * 10**i for i in range(0, 1 + 1)][::-1],
-          'momentum': [0.9][::-1],  # .7,
+            'learning_rate': [1 * 10**i for i in range(0, 1 + 1)][::-1],
+            'momentum': [0.9][::-1],  # .7,
         },
     }
 
